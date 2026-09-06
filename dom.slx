@@ -1,0 +1,415 @@
+// The document, as a package.
+//
+// **The same forty-four names `slate:dom` exports, built on `external` instead of on thirteen
+// hand-written builtins in the compiler's JavaScript back end.** A consumer changes one import line
+// and nothing else:
+//
+//     import { byId, setText, on } from dom
+//
+// **Why it is a package at all.** Every name below is one JavaScript call away from what a browser
+// already offers, and while they lived in the back end each of them cost a language release: a page
+// that wanted `focus` waited for 0.0.37 and one that wanted `dispatch` waited again. `external` is
+// the door the compiler grew so that this file could be ordinary slate, and a name added here ships
+// the moment this package does.
+//
+// ## What a node is
+//
+// **A node IS the external -- the element itself, not an index into a table the engine keeps.** That
+// is the one decision every other one here follows from, and it is a reversal of what the built-in
+// module chose: `slate:dom` hands out an integer handle so that no foreign object ever becomes a
+// slate value. `external` makes that trade unnecessary. An external is opaque, it cannot be printed
+// as anything but `<external HTMLDivElement>`, it cannot be added to or iterated, and it matches no
+// pattern but a bare name -- so a host object reaching a program is already the thing the handle
+// table was protecting the program from.
+//
+// What it buys is that nothing has to be given back. A handle is a table slot with a lifetime; an
+// element is a value the collector already knows how to forget. **`release` is exported and does
+// nothing**, so a consumer written against the built-in module -- lath calls it in two places --
+// compiles and runs unchanged.
+//
+// **`==` on two nodes is identity**, which is what `slate:dom` promised with integers and what
+// `external` promises directly: two reads of one element compare equal because the host value
+// behind them is one object.
+//
+// **AND A NODE CANNOT YET BE A KEY, WHICH IS THE ONE THING AN INTEGER HANDLE COULD DO AND THIS
+// CANNOT.** A `Map`, a `Set` and an object all settle a key by hashing it and then comparing, and
+// an external hashes by the wrapper slate built at the crossing rather than by the host value it
+// holds -- so two reads of one element are `==` and hash apart, and a table keyed by a node loses
+// the key it was just given. Every consumer of this module keys something by the node: lath holds
+// what it last set on each one, and this module holds a listener's controller. **So a node as a key
+// is what the language owes before this package can be finished**, and it is one line in the
+// runtime -- the same rule `==` already follows, applied to the hash.
+//
+// ## What crosses the boundary
+//
+// Every function here is a property read, a property write or a method call on an external, and the
+// marshalling is the language's rather than this file's: a whole `number` comes back an integer, a
+// missing property comes back `null`, a string is a string, and anything else comes back external.
+// **So the reading half of this module is nearly free** -- `tagName`, `nodeText` and `property` are
+// one read each -- and the work is in the places where the host's answer is not the shape the spec
+// says: an event, a mutation record, a location, a stored value.
+//
+// ## Under the interpreter
+//
+// **The declaration succeeds and only a host operation faults**, which is `external`'s own rule and
+// costs this file nothing: an `external` declaration touches no host, so it is accepted where there
+// is no host at all, and the first property read or call on the value it bound is what refuses. So
+// the module imports on a server exactly as `slate:dom` does, and a program that asks for a document
+// where there is none is told that the way it was run was the mistake rather than that the import
+// was.
+//
+// **The sentence is not word for word `slate:dom`'s, and that difference is worth knowing.** The
+// built-in module names the slate command -- `createElement` needs a document -- because it is
+// written as a builtin and knows which one it is. What comes out here is the language's own refusal,
+// naming the host operation and saying there is no JavaScript host: *calling `createElement` on an
+// external reaches the JavaScript host, and the interpreter has no JavaScript host*. For most of
+// these names the host's spelling IS the command -- `createElement`, `setAttribute`, `focus` -- and
+// where it is not, `byId` reaching `getElementById`, the reader is still sent to the right place,
+// which is the way the program was run.
+
+// **ONE DECLARATION, AND EVERY HOST VALUE IS REACHED THROUGH IT.** `globalThis` is the one path
+// every JavaScript host has, and that is the whole reason it is the only one named here.
+//
+// **A declaration is EAGER and TOTAL**: the path is walked where the declaration stands, and a path
+// that names nothing is a fault quoting it. So `external document` at the top of this file would
+// take the whole module with it on a host that has no document -- a program compiled with
+// `slate js` and run under node, which is exactly where a server-rendering framework imports this
+// and then guards its calls with `host()`. `slate:dom`'s rule is that **the module still exists and
+// the import still succeeds**, because a refusal at the import is a complaint about the module and
+// sends a reader looking for a spelling mistake in the one line that is right. A property read off
+// `globalThis` answers `null` for a name that is not there, which is what keeps that rule true here.
+//
+// It is what keeps the interpreter's rule true as well. The declaration itself touches no host, so
+// it is accepted where there is no host at all; the first property read is what faults, and it says
+// there is no JavaScript host and which operation asked for one.
+external globalThis
+
+// The document, or `null` where there is none. **Asked per call rather than held in a `val`**, for
+// the same reason the declaration is the only one: a top-level read is a host operation, and one
+// standing at the top of this file would fault under the interpreter before a program had called
+// anything.
+page(command)
+    throw "page has no body yet"
+
+// The window, and `window.history` under it. `location` is read off the window rather than off
+// `globalThis` so that a host installing a page under a `window` -- which is what a jsdom harness
+// does -- is the same host a browser is.
+frame(command)
+    throw "frame has no body yet"
+
+// The classes an event is built from, `globalThis.Event` and its two subclasses. **`dispatch`
+// chooses between them by the event's name**, a `click` being a `MouseEvent` and a `keydown` a
+// `KeyboardEvent`, because a handler reading `e.button` off a plain `Event` gets nothing and a
+// router telling a left click from a middle one would let every dispatched click through to the
+// browser.
+eventClass(type)
+    throw "eventClass has no body yet"
+
+// **The two names a browser may genuinely lack, and neither is a fault at the import.**
+// `EventSource` is absent from jsdom and from node, and `localStorage` is absent from a page a
+// browser has been told to keep no data for -- so both are asked for where they are used and
+// answered with the module's own sentence, which names what is missing rather than what a program
+// was doing.
+stream(command)
+    throw "stream has no body yet"
+
+held(command)
+    throw "held has no body yet"
+
+// -- making a node, and changing one --------------------------------------------------------------
+//
+// **Each of these is one method call on `document` or on the node itself.** `createElement`,
+// `createTextNode` and `createComment` answer host objects, which come back external and are
+// therefore already nodes; `setAttribute` and the rest answer nothing and are called for what they
+// do.
+//
+// **`value` and `checked` go through `setProperty` and never through `setAttribute`**, which is the
+// pair a form turns on: the attribute says what the field started as and the property says what it
+// holds now, so a re-render that set the attribute would leave a typed-in field alone and the page
+// would appear frozen. This module does not enforce that -- both calls exist and a program picks --
+// but every consumer of it depends on the distinction being real.
+
+export createElement(tag)
+    throw "createElement has no body yet"
+
+export createText(s)
+    throw "createText has no body yet"
+
+export createComment(s)
+    throw "createComment has no body yet"
+
+export setAttribute(node, name, value)
+    throw "setAttribute has no body yet"
+
+export removeAttribute(node, name)
+    throw "removeAttribute has no body yet"
+
+export setProperty(node, name, value)
+    throw "setProperty has no body yet"
+
+// **`setChildren` writes the whole list and the two below it move one node**, and both spellings are
+// here because they cost different things: replacing a list is what makes a re-render idempotent,
+// and a browser records a mutation per child for it. `replaceChildren` takes the children as
+// arguments, so the array is spread at the call.
+export setChildren(node, kids)
+    throw "setChildren has no body yet"
+
+export setText(node, s)
+    throw "setText has no body yet"
+
+// **`before` of `null` appends**, which is `Node.insertBefore`'s own rule, and a node already in the
+// page MOVES rather than being copied -- so it keeps its focus, its scroll position and whatever it
+// was playing.
+export insertBefore(parent, node, before)
+    throw "insertBefore has no body yet"
+
+// **The parent is named for the removal too**, where the host needs only the child: a reconciler
+// holds both, and naming the parent is what turns "that node is somewhere else entirely" from a
+// silent success into a sentence.
+export removeChild(parent, node)
+    throw "removeChild has no body yet"
+
+// **The offset is in characters and the host counts UTF-16 units**, so the cut has to be converted
+// before `splitText` is called or an offset written after an emoji lands inside one.
+export splitText(node, at)
+    throw "splitText has no body yet"
+
+// **A no-op, kept so that nothing written against the built-in module has to change.** There is no
+// handle table here and therefore nothing to give back; the element stays exactly where it is in the
+// page, which is what `release` always did.
+export release(node)
+    throw "release has no body yet"
+
+// -- finding a node, and reading one --------------------------------------------------------------
+//
+// **These exist because hydration needs exactly them**: a program adopting markup a server rendered
+// has to walk what is there and ask what it found. Everything above either makes a node or changes
+// one.
+//
+// **`children` answers EVERY child node and not only the elements**, because a text node between two
+// elements is a position: a reconciler counting children has to count what the browser counts, or it
+// adopts the wrong node. `childNodes` is a host list rather than an array, so it is walked by its
+// `length` and copied into a slate array here.
+
+export byId(id)
+    throw "byId has no body yet"
+
+export query(selector)
+    throw "query has no body yet"
+
+export children(node)
+    throw "children has no body yet"
+
+// **Lower case, because that is what a program wrote** -- the host answers `DIV` for HTML -- and
+// `null` for anything that is not an element, which is how a text node is told from one.
+export tagName(node)
+    throw "tagName has no body yet"
+
+export nodeText(node)
+    throw "nodeText has no body yet"
+
+// **`true` for a bare attribute**, which is the reading `setAttribute` writes: it puts the empty
+// string for `true`, so a program comparing what it would set against what is there gets the same
+// value back. A name the node does not carry is `null`.
+export attribute(node, name)
+    throw "attribute has no body yet"
+
+// `"element"`, `"text"`, `"comment"`, `"fragment"`, `"document"` or `"other"`, read off `nodeType`.
+// **It tells a comment from a text node**, which `tagName` calls `null` alike -- a reconciler
+// counting children read a comment as a piece of text and adopted the wrong node from there on.
+export nodeKind(node)
+    throw "nodeKind has no body yet"
+
+// **What the node HOLDS, where `attribute` is what its markup said.** Only a value slate can hold
+// comes back -- a string, a boolean or a number -- and anything else answers `null`, exactly as a
+// name the node does not carry does. The marshalling already draws that line: a host value that is
+// not a primitive crosses as an external, so this is a type test on what came back.
+export property(node, name)
+    throw "property has no body yet"
+
+// **A reader and not a parser**: it answers the node's `outerHTML`, and for a node that has none --
+// a text node, a comment -- the escaped text it says. Nothing in this module turns a string of
+// markup into nodes.
+export markup(node)
+    throw "markup has no body yet"
+
+// -- events -----------------------------------------------------------------------------------
+//
+// **A handler is given a RECORD and never the event**: `{ type, value, checked, key, mods, button,
+// stop, prevent }`, eight fields built here from the host's event. A `MouseEvent` has no
+// representation in slate, and handing one over as an external would put a value in a program's
+// hands that it could not print, compare or store -- and would make every handler in every
+// consumer read host properties instead of slate fields.
+//
+// `mods` is `{ meta, ctrl, shift, alt }` and `button` is an integer or `null` -- `0` left, `1`
+// middle, `2` right. **They are here because a link cannot be written without them**: a framework
+// that intercepts a click has to let a cmd-click, a ctrl-click, a shift-click and a middle click
+// through to the browser, or it swallows the most ordinary thing anybody does to a link.
+//
+// `stop` and `prevent` are slate functions closing over the host event, which is the one place a
+// foreign value is deliberately kept alive past the call that made it -- for as long as the handler
+// runs and no longer.
+//
+// ## Taking a listener off again
+//
+// **`off` needs the same JavaScript function `on` handed over, and slate cannot name it.** A closure
+// crosses outward as a fresh JavaScript function every time it crosses, so the value
+// `removeEventListener` would be given is never the value `addEventListener` was given, and the
+// listener would stay on the node for ever.
+//
+// **So the package keeps its own map, keyed by the slate closure itself.** slate compares a function
+// by identity -- the rule `values.md` states for a set, a map, a promise and a function alike -- so
+// the closure a consumer holds is a key that finds what was installed for it and finds nothing for
+// any other closure. What the map holds is an `AbortController`, reached as
+// `globalThis.AbortController`: `on` passes its signal to `addEventListener` and `off` calls
+// `abort()`, which is the DOM's own way of removing a listener without naming the function again.
+//
+// **The controller has to come from the SAME realm as the node.** A signal built by node's own
+// `AbortController` handed to a jsdom element is a foreign object to the interface that checks it,
+// so a harness that installs a document has to install that document's `AbortController` beside it.
+// A page has one realm and never meets this; a test harness has two.
+//
+// The map is a `Map` of node to a `Map` of event name to a `Map` of closure to controller, which is
+// exactly the three-level table the built-in module keeps in its own runtime.
+//
+// **The outer level is what the language cannot do yet.** A `Map` keyed by a node compares its keys
+// with `==`, which is right, and hashes them by the WRAPPER slate made at the crossing rather than
+// by the host object behind it -- so two reads of one element are equal and land in two slots, and
+// the map loses the key it was just given. Until that is fixed the outer level cannot be a `Map`
+// keyed by the node.
+
+export on(node, event, fn)
+    throw "on has no body yet"
+
+export off(node, event, fn)
+    throw "off has no body yet"
+
+// **What `on` reads, sent.** The argument is a string or a record carrying `type` and optionally
+// `key`, `button`, `mods`, `bubbles` and `cancelable` -- the event record's own fields rather than
+// the host's constructors. It answers whether nothing cancelled the event, which is all a sender can
+// learn.
+export dispatch(node, event)
+    throw "dispatch has no body yet"
+
+// A `MutationObserver`. The options are `children`, `attributes`, `text` and `subtree`, at least one
+// of the first three; the answer is an object whose `disconnect` is the one thing that stops it.
+//
+// **A record carries no nodes**, which is the decision the event record already makes: a re-render
+// makes hundreds of records. A record says `type` (`"children"`, `"attributes"` or `"text"`),
+// `attribute` (the name, or `null`), and `added` and `removed` as counts.
+export observe(node, options, fn)
+    throw "observe has no body yet"
+
+// An `EventSource`. A message is `{ data, lastEventId, type }` and an error record says only
+// `closed`; the answer is an object whose `close` ends the subscription.
+//
+// **A `lastEventId` option is refused rather than ignored.** The host sends the last id it saw on
+// its own reconnections and gives a program no way to set one on the first request, so taking the
+// option and dropping it would be a program that believed it had resumed and had not.
+export events(url, options)
+    throw "events has no body yet"
+
+export focus(node)
+    throw "focus has no body yet"
+
+export blur(node)
+    throw "blur has no body yet"
+
+// **The body answers `null` too.** A browser answers `<body>` for "nothing focused", so a program
+// reading this has one value to check rather than two; one that wants to know what the body holds
+// asks for it by name.
+export activeElement()
+    throw "activeElement has no body yet"
+
+// -- where the page is, and where it has been ----------------------------------------------------
+//
+// **`location` is read off `window.location` and the four movements go through `window.history`.**
+// A record is built here rather than the host object handed over, for the reason the event record is
+// built: `{ href, protocol, host, hostname, port, path, query, hash }` is a value a program can
+// keep, and `path` is the host's `pathname` under the name the rest of slate uses.
+//
+// **`query` and `hash` carry their punctuation** -- `"?a=1"` and `"#top"` -- which is what a program
+// pasting one back into a url needs. An empty one is `""` and never `null`.
+//
+// **A push does not raise `onNavigate`.** The host raises `popstate` for a movement the user made
+// and never for one the program made itself, so `onNavigate` is a `popstate` listener on the window
+// and nothing else -- a router renders after its own push and waits to be told about everything
+// else. Getting this wrong is how a router renders twice.
+//
+// **There is no state object, and that is a measurement rather than an omission**: `pushState`
+// structured-clones what it is given and that strips the prototype, so a slate object put in comes
+// back a plain object nothing in the language could read. The url is the whole of the state.
+
+export location()
+    throw "location has no body yet"
+
+export pushPath(url)
+    throw "pushPath has no body yet"
+
+export replacePath(url)
+    throw "replacePath has no body yet"
+
+export back()
+    throw "back has no body yet"
+
+export forward()
+    throw "forward has no body yet"
+
+export onNavigate(fn)
+    throw "onNavigate has no body yet"
+
+// -- what the browser remembers -------------------------------------------------------------------
+//
+// **The store answers results**, which is `readFileSync`'s channel and its reason: what comes back
+// was written by somebody else -- another tab, an earlier visit, a user who cleared it. A key that
+// is not there is `{ ok: true, value: null }` and not a failure; a browser told to keep no data, or
+// one out of quota, is `{ ok: false, error }`. So every call here is wrapped in a `try`.
+//
+// **A value that is not a string is stored as slate prints it**, a store holding nothing else.
+
+export stored(key)
+    throw "stored has no body yet"
+
+export store(key, v)
+    throw "store has no body yet"
+
+export unstore(key)
+    throw "unstore has no body yet"
+
+export storedKeys()
+    throw "storedKeys has no body yet"
+
+export clearStored()
+    throw "clearStored has no body yet"
+
+// -- what rides along with every request ----------------------------------------------------------
+//
+// **`localStorage` never leaves the browser and a cookie always does**, which is the whole reason a
+// server-rendering framework reaches for one: a session id, a CSRF token, anything the NEXT request
+// needs to already be carrying. All four read and write `document.cookie`, which is one string.
+//
+// **These answer plain values and never a result** -- reading `document.cookie` cannot fail the way
+// a quota can, so a name that is not set is `null` rather than a fault.
+//
+// **The value is encoded and the options are not.** `setCookie` percent-encodes the value the same
+// way `cookie` decodes it back -- a `;` or `=` inside it would otherwise end the pair or split it in
+// the wrong place -- while `path`, `domain`, `expires`, `maxAge` and `sameSite` are written into the
+// cookie string exactly as given, being the browser's syntax rather than a value a program
+// round-trips.
+//
+// **A delete needs the SAME path and domain a set was given.** A cookie is identified by all three
+// together, so a path-less `deleteCookie` after a `setCookie` with a path writes a second cookie
+// rather than removing the first. That is `document.cookie`'s own trap, carried through rather than
+// papered over.
+
+export cookies()
+    throw "cookies has no body yet"
+
+export cookie(name)
+    throw "cookie has no body yet"
+
+export setCookie(name, v, options = {})
+    throw "setCookie has no body yet"
+
+export deleteCookie(name, options = {})
+    throw "deleteCookie has no body yet"
