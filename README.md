@@ -115,11 +115,15 @@ differs, it says so.
 - **A node prints as `<external HTMLDivElement>`** where the built-in module printed a number.
   Nothing else about a node changes: `==` is identity, it travels through an array, a field and a
   `Map` value like anything else, and `x is external` is the type test.
-- **A node cannot be a key yet.** A `Map`, a `Set` and an object settle a key by hashing it and then
-  comparing, and an external hashes by the wrapper slate built at the crossing rather than by the
-  host value it holds — so two reads of one element are `==` and hash apart, and a table keyed by a
-  node loses the key it was just given. An integer handle could do this and an external cannot until
-  the runtime hashes what `==` compares. Every consumer keys something by the node.
+- **A node is a key**, which every consumer needs: a `Map`, a `Set` and an object settle a key by
+  hashing it and then comparing, and an external hashes by the host value it holds rather than by the
+  wrapper it crossed in — so two reads of one element are `==`, hash together, and find each other's
+  entry. This module keeps a listener's `AbortController` under one, and lath keeps what it last set
+  on each node.
+- **A node given a listener is held until `off` takes it back.** The built-in module keeps its
+  listeners in a `WeakMap` and this one keeps them in an ordinary `Map`, there being no weak map in
+  the language — so a page that puts a handler on a node it later drops takes the handler off with
+  it. `off` empties every level of the table it leaves empty.
 - **The interpreter's refusal names the host operation** — *calling `createElement` on an external
   reaches the JavaScript host, and the interpreter has no JavaScript host* — where the built-in
   module names the slate command. For most of these the host's spelling *is* the command; where it is
@@ -135,11 +139,21 @@ npm install
 NODE_OPTIONS="--import ./tests-dom/setup.mjs" slate test --js tests-dom
 ```
 
-**The first two are the same suite and say the same thing**: the module imports where there is no
-document at all, every name is there, and calling one raises rather than answering something
-plausible. **The third is the one that says what the names DO**, against a real
-[jsdom](https://github.com/jsdom/jsdom) document — jsdom is a dev dependency of this repository and
-of nothing else; a program that uses this package never sees npm.
+**The first two are the same suite on two hosts with no page**, and they say the module imports where
+there is no document at all, that every name is there, that the export list is `slate:dom`'s name for
+name, and that calling one refuses rather than answering something plausible. The interpreter runs all
+48; a JavaScript host with no page runs the 32 that reach the document, the window or the store before
+they reach a node, and leaves the other 16 out — there being nothing on that host that reads as a node.
+
+**The last is the one that says what the names DO** — 79 tests against a real
+[jsdom](https://github.com/jsdom/jsdom) document, `tests-dom/dom.slx` for what a node is and what
+happens to one and `tests-dom/doors.slx` for where the page is, where it has been, what it remembers
+and what it is carrying. jsdom is a dev dependency of this repository and of nothing else; a program
+that uses this package never sees npm.
+
+**Run it with no `NODE_OPTIONS` and it skips rather than fails**, which is the cheap check that the
+module still loads on a host with no document — what the one `external globalThis` buys, and what an
+`external document` at the top of the file would take away.
 
 **jsdom rather than a fake document written beside the code it checks.** A shim written in the
 harness would agree with `dom.slx` by construction: every mistake this package could make about what
@@ -148,10 +162,13 @@ would pass.
 
 ## Requirements
 
-slate **0.0.38** or newer, and nothing else. The floor is `external` itself, which is what every
-function here is built on; an older compiler fails at the first declaration. A manifest has no key
-for a compiler floor — the reader takes `name`, `version`, `main`, `modules`, `dependencies` and
-`devDependencies` and names anything else — so this paragraph is where it is written down.
+slate **0.0.39** or newer, and nothing else. Two things make the floor. `external` itself, which is
+what every function here is built on and which arrived in 0.0.38 — an older compiler fails at the
+first declaration. And an external hashing by the host value it holds, which arrived in 0.0.39: the
+listener table is keyed by the node, so on 0.0.38 `off` would find nothing for a node read a second
+time. A manifest has no key for a compiler floor — the reader takes `name`, `version`, `main`,
+`modules`, `dependencies` and `devDependencies` and names anything else — so this paragraph is where
+it is written down.
 
 ## Licence
 
