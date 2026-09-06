@@ -31,14 +31,11 @@
 // `external` promises directly: two reads of one element compare equal because the host value
 // behind them is one object.
 //
-// **AND A NODE CANNOT YET BE A KEY, WHICH IS THE ONE THING AN INTEGER HANDLE COULD DO AND THIS
-// CANNOT.** A `Map`, a `Set` and an object all settle a key by hashing it and then comparing, and
-// an external hashes by the wrapper slate built at the crossing rather than by the host value it
-// holds -- so two reads of one element are `==` and hash apart, and a table keyed by a node loses
-// the key it was just given. Every consumer of this module keys something by the node: lath holds
-// what it last set on each one, and this module holds a listener's controller. **So a node as a key
-// is what the language owes before this package can be finished**, and it is one line in the
-// runtime -- the same rule `==` already follows, applied to the hash.
+// **AND A NODE IS A KEY**, which is what a table of listeners needs and what every consumer needs
+// too: lath holds what it last set on each node, and this module holds a listener's controller under
+// one. A `Map`, a `Set` and an object all settle a key by hashing it and then comparing, and an
+// external hashes by the host value it holds rather than by the wrapper it crossed in -- so two
+// reads of one element are `==`, hash together, and find each other's entry.
 //
 // ## What crosses the boundary
 //
@@ -84,26 +81,50 @@
 // there is no JavaScript host and which operation asked for one.
 external globalThis
 
-// The document, or `null` where there is none. **Asked per call rather than held in a `val`**, for
-// the same reason the declaration is the only one: a top-level read is a host operation, and one
-// standing at the top of this file would fault under the interpreter before a program had called
-// anything.
+// The document, or a fault naming the command where this JavaScript host has none. **Asked per call
+// rather than held in a `val`**, for the same reason the declaration is the only one: a top-level
+// read is a host operation, and one standing at the top of this file would fault under the
+// interpreter before a program had called anything.
 page(command)
-    throw "page has no body yet"
+    val doc = globalThis.document
 
-// The window, and `window.history` under it. `location` is read off the window rather than off
-// `globalThis` so that a host installing a page under a `window` -- which is what a jsdom harness
-// does -- is the same host a browser is.
-frame(command)
-    throw "frame has no body yet"
+    if doc == null
+        throw s"`${command}` needs a document, and this JavaScript host has none -- `dom` is for a page"
+
+    doc
+
+// The window, with `window.location` and `window.history` under it, or a fault naming which of the
+// two the command wanted. Both are read off the window rather than off `globalThis` so that a host
+// installing a page under a `window` -- which is what a jsdom harness does -- is the same host a
+// browser is.
+frame(command, what)
+    val w = globalThis.window
+
+    if w == null
+        throw s"`${command}` needs a browser's `${what}`, and this JavaScript host has none"
+
+    w
 
 // The classes an event is built from, `globalThis.Event` and its two subclasses. **`dispatch`
 // chooses between them by the event's name**, a `click` being a `MouseEvent` and a `keydown` a
 // `KeyboardEvent`, because a handler reading `e.button` off a plain `Event` gets nothing and a
 // router telling a left click from a middle one would let every dispatched click through to the
-// browser.
-eventClass(type)
-    throw "eventClass has no body yet"
+// browser. A `key` or a `button` the sender named decides where the name does not.
+// The names a browser builds a `MouseEvent` for, and the three it builds a `KeyboardEvent` for.
+val MouseEvents = ["click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup",
+    "mousemove", "mouseenter", "mouseleave", "mouseover", "mouseout"]
+
+val KeyEvents = ["keydown", "keyup", "keypress"]
+
+// The class to build an event of, chosen from the name first and from what the sender said second:
+// a `key` makes it a keyboard event and a `button` makes it a mouse event, whatever it is called.
+eventClass(type, key, button)
+    if key != null || (contains(KeyEvents, type) && button == null)
+        globalThis.KeyboardEvent
+    else if button != null || contains(MouseEvents, type)
+        globalThis.MouseEvent
+    else
+        globalThis.Event
 
 // **The two names a browser may genuinely lack, and neither is a fault at the import.**
 // `EventSource` is absent from jsdom and from node, and `localStorage` is absent from a page a
@@ -111,10 +132,37 @@ eventClass(type)
 // answered with the module's own sentence, which names what is missing rather than what a program
 // was doing.
 stream(command)
-    throw "stream has no body yet"
+    val source = globalThis.EventSource
+
+    if source == null
+        throw s"`${command}` needs a browser's `EventSource`, and this JavaScript host has none"
+
+    source
+
+// Whether this host has a store at all, asked without using it.
+//
+// **A browser told to keep no data throws on the ACCESS ITSELF**, so a read that raises means the
+// name is there and the store is refusing -- which the five names below answer as a failed result
+// rather than as an absence. The guard goes up only on a JavaScript host: under the interpreter the
+// very same read is the language's own refusal, and catching that would tell a program running on a
+// server that a browser had said no.
+storeThere()
+    if host() == "interpreter"
+        globalThis.localStorage != null
+    else
+        (globalThis.localStorage != null) catch e -> true
 
 held(command)
-    throw "held has no body yet"
+    if !storeThere()
+        throw s"`${command}` needs a browser's `localStorage`, and this JavaScript host has none"
+
+    globalThis.localStorage
+
+// The two halves of what a store answers: what it holds, and what it said when it would not.
+ok(value) = { ok: true, value: value }
+
+refused(e) = { ok: false,
+    error: "this browser is not letting the page use `localStorage`: " + string(e.message) }
 
 // -- making a node, and changing one --------------------------------------------------------------
 //
@@ -130,55 +178,109 @@ held(command)
 // but every consumer of it depends on the distinction being real.
 
 export createElement(tag)
-    throw "createElement has no body yet"
+    page("createElement").createElement(tag)
 
 export createText(s)
-    throw "createText has no body yet"
+    page("createText").createTextNode(s)
 
 export createComment(s)
-    throw "createComment has no body yet"
+    page("createComment").createComment(s)
 
 export setAttribute(node, name, value)
-    throw "setAttribute has no body yet"
+    if value == null || value == false
+        node.removeAttribute(name)
+    else
+        node.setAttribute(name, if value == true then "" else string(value))
+
+    null
 
 export removeAttribute(node, name)
-    throw "removeAttribute has no body yet"
+    node.removeAttribute(name)
+
+    null
 
 export setProperty(node, name, value)
-    throw "setProperty has no body yet"
+    node[name] = value
+
+    null
 
 // **`setChildren` writes the whole list and the two below it move one node**, and both spellings are
 // here because they cost different things: replacing a list is what makes a re-render idempotent,
 // and a browser records a mutation per child for it. `replaceChildren` takes the children as
 // arguments, so the array is spread at the call.
 export setChildren(node, kids)
-    throw "setChildren has no body yet"
+    node.replaceChildren(...kids)
+
+    null
 
 export setText(node, s)
-    throw "setText has no body yet"
+    node.textContent = s
+
+    null
 
 // **`before` of `null` appends**, which is `Node.insertBefore`'s own rule, and a node already in the
 // page MOVES rather than being copied -- so it keeps its focus, its scroll position and whatever it
 // was playing.
 export insertBefore(parent, node, before)
-    throw "insertBefore has no body yet"
+    if before != null && before.parentNode != parent
+        throw "`insertBefore` was given a node to go before that is not a child of this parent"
+
+    parent.insertBefore(node, before)
+
+    null
 
 // **The parent is named for the removal too**, where the host needs only the child: a reconciler
 // holds both, and naming the parent is what turns "that node is somewhere else entirely" from a
 // silent success into a sentence.
 export removeChild(parent, node)
-    throw "removeChild has no body yet"
+    if node.parentNode != parent
+        throw "`removeChild` was given a node that is not a child of this parent"
 
-// **The offset is in characters and the host counts UTF-16 units**, so the cut has to be converted
-// before `splitText` is called or an offset written after an emoji lands inside one.
+    parent.removeChild(node)
+
+    null
+
+// **The offset is in characters and the host counts UTF-16 units**, so the cut is made from the
+// node's own characters rather than through `Text.splitText` -- an offset written after an emoji
+// would otherwise land inside one.
+// Which of six words a node is, read off `nodeType`. `nodeKind` is this under its exported name,
+// and `splitText` asks it to say what it was handed instead of a piece of text.
+kindOf(node)
+    node.nodeType match
+        1 -> "element"
+        3 -> "text"
+        8 -> "comment"
+        9 -> "document"
+        11 -> "fragment"
+        _ -> "other"
+
+// **The cut is made by hand rather than through `Text.splitText`**, which counts UTF-16 units: the
+// head and the tail are sliced out of the node's own characters, the head written back, and the tail
+// put in front of the node's next sibling -- which is what the DOM does with the offset it was given.
 export splitText(node, at)
-    throw "splitText has no body yet"
+    if kindOf(node) != "text"
+        throw s"`splitText` takes a text node, and this is ${kindOf(node)} -- `nodeKind` is what asks"
+
+    val letters = chars(string(node.data))
+
+    if at < 0 || at > letters.length
+        throw s"`splitText` was given ${at} and the text is ${letters.length} characters long"
+
+    val tail = node.ownerDocument.createTextNode(join(slice(letters, at, letters.length), ""))
+    val parent = node.parentNode
+
+    node.data = join(slice(letters, 0, at), "")
+
+    if parent != null
+        parent.insertBefore(tail, node.nextSibling)
+
+    tail
 
 // **A no-op, kept so that nothing written against the built-in module has to change.** There is no
 // handle table here and therefore nothing to give back; the element stays exactly where it is in the
 // page, which is what `release` always did.
 export release(node)
-    throw "release has no body yet"
+    null
 
 // -- finding a node, and reading one --------------------------------------------------------------
 //
@@ -192,46 +294,74 @@ export release(node)
 // `length` and copied into a slate array here.
 
 export byId(id)
-    throw "byId has no body yet"
+    page("byId").getElementById(id)
 
 export query(selector)
-    throw "query has no body yet"
+    page("query").querySelector(selector)
 
 export children(node)
-    throw "children has no body yet"
+    val kids = node.childNodes
+    val out = []
+
+    if kids != null
+        for i in 0..<kids.length
+            out.push(kids[i])
+
+    out
 
 // **Lower case, because that is what a program wrote** -- the host answers `DIV` for HTML -- and
 // `null` for anything that is not an element, which is how a text node is told from one.
 export tagName(node)
-    throw "tagName has no body yet"
+    node.tagName match
+        t @ string -> lower(t)
+        _ -> null
 
 export nodeText(node)
-    throw "nodeText has no body yet"
+    val said = node.textContent
+
+    if said == null then "" else string(said)
 
 // **`true` for a bare attribute**, which is the reading `setAttribute` writes: it puts the empty
 // string for `true`, so a program comparing what it would set against what is there gets the same
 // value back. A name the node does not carry is `null`.
 export attribute(node, name)
-    throw "attribute has no body yet"
+    if node.hasAttribute == null || !node.hasAttribute(name)
+        null
+    else
+        val said = node.getAttribute(name)
+
+        if said == "" then true else said
 
 // `"element"`, `"text"`, `"comment"`, `"fragment"`, `"document"` or `"other"`, read off `nodeType`.
 // **It tells a comment from a text node**, which `tagName` calls `null` alike -- a reconciler
 // counting children read a comment as a piece of text and adopted the wrong node from there on.
 export nodeKind(node)
-    throw "nodeKind has no body yet"
+    kindOf(node)
 
 // **What the node HOLDS, where `attribute` is what its markup said.** Only a value slate can hold
 // comes back -- a string, a boolean or a number -- and anything else answers `null`, exactly as a
 // name the node does not carry does. The marshalling already draws that line: a host value that is
 // not a primitive crosses as an external, so this is a type test on what came back.
 export property(node, name)
-    throw "property has no body yet"
+    node[name] match
+        v @ string -> v
+        v @ boolean -> v
+        v @ number -> v
+        _ -> null
 
 // **A reader and not a parser**: it answers the node's `outerHTML`, and for a node that has none --
 // a text node, a comment -- the escaped text it says. Nothing in this module turns a string of
 // markup into nodes.
 export markup(node)
-    throw "markup has no body yet"
+    val outer = node.outerHTML
+
+    if outer != null
+        string(outer)
+    else
+        val said = node.textContent
+        val text = if said == null then "" else string(said)
+
+        replace(replace(replace(text, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
 
 // -- events -----------------------------------------------------------------------------------
 //
@@ -272,24 +402,116 @@ export markup(node)
 // The map is a `Map` of node to a `Map` of event name to a `Map` of closure to controller, which is
 // exactly the three-level table the built-in module keeps in its own runtime.
 //
-// **The outer level is what the language cannot do yet.** A `Map` keyed by a node compares its keys
-// with `==`, which is right, and hashes them by the WRAPPER slate made at the crossing rather than
-// by the host object behind it -- so two reads of one element are equal and land in two slots, and
-// the map loses the key it was just given. Until that is fixed the outer level cannot be a `Map`
-// keyed by the node.
+// **The outer level is keyed by the NODE, which is what makes `off` reach the right listener.** Two
+// reads of one element are `==` and hash together, so the node a consumer holds is a key that finds
+// what was installed on it. What the built-in keeps in a `WeakMap` is kept here in an ordinary one:
+// a node given a listener is held until `off` takes it back, and `off` empties every level it
+// leaves empty.
+
+// What a handler is given: the eight fields, built here from the host's event.
+//
+// **The target is read for `value` and `checked`** -- what the field holds now, which is the pair a
+// form turns on -- and every field a host event does not carry comes back `null` on its own, an
+// absent property crossing as one.
+eventRecord(e)
+    val target = e.target
+    val said = if target == null then null else target.value
+    val ticked = if target == null then null else target.checked
+
+    { type: e.type,
+        value: if said == null then null else string(said),
+        checked: ticked,
+        key: e.key,
+        mods: { meta: e.metaKey == true,
+            ctrl: e.ctrlKey == true,
+            shift: e.shiftKey == true,
+            alt: e.altKey == true },
+        button: e.button,
+        stop: () -> e.stopPropagation(),
+        prevent: () -> e.preventDefault() }
+
+// Every listener this module installed, as node to event name to closure to the `AbortController`
+// that takes it off again.
+//
+// **A node given a listener is held here until `off` takes it back**, the map being an ordinary one
+// and its keys ordinary values. A page that removes a node it put a handler on takes the handler off
+// with it.
+val listeners = Map()
 
 export on(node, event, fn)
-    throw "on has no body yet"
+    val control = globalThis.AbortController.new()
+
+    node.addEventListener(event, (e) -> fn(eventRecord(e)), { signal: control.signal })
+
+    val byEvent = listeners.get(node) ?? Map()
+    val byFn = byEvent.get(event) ?? Map()
+    val already = byFn.get(fn)
+
+    // **One closure is one listener**, which is what a browser gives a function handed twice: the
+    // wrapper crossing outward is a fresh function each time, so the earlier one is taken off here.
+    if already != null
+        already.abort()
+
+    byFn.set(fn, control)
+    byEvent.set(event, byFn)
+    listeners.set(node, byEvent)
+
+    null
 
 export off(node, event, fn)
-    throw "off has no body yet"
+    val byEvent = listeners.get(node)
+    val byFn = if byEvent == null then null else byEvent.get(event)
+    val control = if byFn == null then null else byFn.get(fn)
+
+    if control != null
+        control.abort()
+        byFn.delete(fn)
+
+        if byFn.size == 0
+            byEvent.delete(event)
+
+        if byEvent.size == 0
+            listeners.delete(node)
+
+    null
 
 // **What `on` reads, sent.** The argument is a string or a record carrying `type` and optionally
 // `key`, `button`, `mods`, `bubbles` and `cancelable` -- the event record's own fields rather than
 // the host's constructors. It answers whether nothing cancelled the event, which is all a sender can
 // learn.
+// What a built event is given beyond the modifiers: a keyboard event carries the key it was named
+// with, and a mouse event a button -- the left one where the sender named none.
+eventInit(base, made, key, button)
+    if made == globalThis.KeyboardEvent && key != null
+        base with { key: key }
+    else if made == globalThis.MouseEvent
+        base with { button: button ?? 0 }
+    else
+        base
+
 export dispatch(node, event)
-    throw "dispatch has no body yet"
+    page("dispatch")
+
+    val spec = if event is string then { type: event } else event
+    val type = spec.type ?? null
+
+    if !(type is string)
+        throw "`dispatch` takes an event with a `type`, and this one has none"
+
+    val key = spec.key ?? null
+    val button = spec.button ?? null
+    val mods = spec.mods ?? {}
+
+    val base = { bubbles: (spec.bubbles ?? true) != false,
+        cancelable: (spec.cancelable ?? true) != false,
+        metaKey: (mods.meta ?? false) == true,
+        ctrlKey: (mods.ctrl ?? false) == true,
+        shiftKey: (mods.shift ?? false) == true,
+        altKey: (mods.alt ?? false) == true }
+
+    val made = eventClass(type, key, button)
+
+    node.dispatchEvent(made.new(type, eventInit(base, made, key, button)))
 
 // A `MutationObserver`. The options are `children`, `attributes`, `text` and `subtree`, at least one
 // of the first three; the answer is an object whose `disconnect` is the one thing that stops it.
@@ -297,8 +519,47 @@ export dispatch(node, event)
 // **A record carries no nodes**, which is the decision the event record already makes: a re-render
 // makes hundreds of records. A record says `type` (`"children"`, `"attributes"` or `"text"`),
 // `attribute` (the name, or `null`), and `added` and `removed` as counts.
+// One mutation record, as counts. **No nodes**, which is the decision the event record makes: a
+// re-render produces hundreds of these, and what a program needs from one is what changed and how
+// much. A program that wants the nodes asks the page with `children` or `query`.
+oneChange(r)
+    { type: if r.type == "childList" then "children" else if r.type == "characterData" then "text" else "attributes",
+        attribute: r.attributeName,
+        added: if r.addedNodes == null then 0 else r.addedNodes.length,
+        removed: if r.removedNodes == null then 0 else r.removedNodes.length }
+
+// The host's list of records, as a slate array of them.
+changes(records)
+    val out = []
+
+    for i in 0..<records.length
+        out.push(oneChange(records[i]))
+
+    out
+
 export observe(node, options, fn)
-    throw "observe has no body yet"
+    page("observe")
+
+    val watch = globalThis.MutationObserver
+
+    if watch == null
+        throw "`observe` needs a browser's `MutationObserver`, and this JavaScript host has none"
+
+    val asked = (k) -> (options[k] ?? false) == true
+
+    // **A browser refuses an observer that watches nothing** with a message naming none of the words
+    // a slate program wrote, so it is refused here instead.
+    if !asked("children") && !asked("attributes") && !asked("text")
+        throw "`observe` watches for at least one of `children`, `attributes` and `text`, and this asks for none"
+
+    val watcher = watch.new((records) -> fn(changes(records)))
+
+    watcher.observe(node, { childList: asked("children"),
+        attributes: asked("attributes"),
+        characterData: asked("text"),
+        subtree: asked("subtree") })
+
+    { disconnect: () -> watcher.disconnect() }
 
 // An `EventSource`. A message is `{ data, lastEventId, type }` and an error record says only
 // `closed`; the answer is an object whose `close` ends the subscription.
@@ -306,20 +567,51 @@ export observe(node, options, fn)
 // **A `lastEventId` option is refused rather than ignored.** The host sends the last id it saw on
 // its own reconnections and gives a program no way to set one on the first request, so taking the
 // option and dropping it would be a program that believed it had resumed and had not.
-export events(url, options)
-    throw "events has no body yet"
+export events(url, options = {})
+    // **What the CALL got wrong is read before what the HOST has not got**: a mistake neither host
+    // has anything to do with says the same thing wherever the program runs.
+    if has(options, "lastEventId")
+        throw "`events` cannot be given a `lastEventId`: a browser's `EventSource` sends the last id it saw itself and gives a page no way to set one -- read `lastEventId` off each message and ask the server for what was missed"
+
+    val feed = stream("events").new(url)
+    val onMessage = options.onMessage ?? null
+    val onError = options.onError ?? null
+
+    if onMessage != null
+        feed.onmessage = (e) -> onMessage({ data: string(e.data),
+            lastEventId: if e.lastEventId == "" then null else e.lastEventId,
+            type: e.type })
+
+    // **What an error record says is whether it is over.** An `EventSource` reconnects by itself, so
+    // nearly every error a page sees is a retry in progress, and a program that stopped on those
+    // would stop on a hiccup.
+    if onError != null
+        feed.onerror = (e) -> onError({ closed: feed.readyState == 2 })
+
+    { close: () -> feed.close() }
 
 export focus(node)
-    throw "focus has no body yet"
+    page("focus")
+
+    node.focus()
+
+    null
 
 export blur(node)
-    throw "blur has no body yet"
+    page("blur")
+
+    node.blur()
+
+    null
 
 // **The body answers `null` too.** A browser answers `<body>` for "nothing focused", so a program
 // reading this has one value to check rather than two; one that wants to know what the body holds
 // asks for it by name.
 export activeElement()
-    throw "activeElement has no body yet"
+    val doc = page("activeElement")
+    val el = doc.activeElement
+
+    if el == null || el == doc.body then null else el
 
 // -- where the page is, and where it has been ----------------------------------------------------
 //
@@ -341,22 +633,59 @@ export activeElement()
 // back a plain object nothing in the language could read. The url is the whole of the state.
 
 export location()
-    throw "location has no body yet"
+    val l = frame("location", "location").location
+
+    { href: string(l.href),
+        protocol: string(l.protocol),
+        host: string(l.host),
+        hostname: string(l.hostname),
+        port: string(l.port),
+        path: string(l.pathname),
+        query: string(l.search),
+        hash: string(l.hash) }
 
 export pushPath(url)
-    throw "pushPath has no body yet"
+    frame("pushPath", "history").history.pushState(null, "", url)
+
+    null
 
 export replacePath(url)
-    throw "replacePath has no body yet"
+    frame("replacePath", "history").history.replaceState(null, "", url)
+
+    null
 
 export back()
-    throw "back has no body yet"
+    frame("back", "history").history.back()
+
+    null
 
 export forward()
-    throw "forward has no body yet"
+    frame("forward", "history").history.forward()
+
+    null
+
+// Where the window is now, as one path -- what a router renders from.
+whereNow(w) = string(w.location.pathname) + string(w.location.search) + string(w.location.hash)
+
+// The handler the module holds, REPLACED rather than added to: two listeners on one event is two
+// names for one thing, and a module holding one of them would miss half of what happened.
+var navigated = null
+
+told(w)
+    if navigated != null
+        navigated(whereNow(w))
+
+    null
 
 export onNavigate(fn)
-    throw "onNavigate has no body yet"
+    val w = frame("onNavigate", "history")
+
+    if navigated == null
+        w.addEventListener("popstate", (e) -> told(w))
+
+    navigated = fn
+
+    null
 
 // -- what the browser remembers -------------------------------------------------------------------
 //
@@ -368,19 +697,39 @@ export onNavigate(fn)
 // **A value that is not a string is stored as slate prints it**, a store holding nothing else.
 
 export stored(key)
-    throw "stored has no body yet"
+    val store = held("stored")
+
+    ok(store.getItem(key)) catch e -> refused(e)
 
 export store(key, v)
-    throw "store has no body yet"
+    val kept = held("store")
+
+    ok(kept.setItem(key, if v is string then v else string(v))) catch e -> refused(e)
 
 export unstore(key)
-    throw "unstore has no body yet"
+    val kept = held("unstore")
+
+    ok(kept.removeItem(key)) catch e -> refused(e)
+
+// Every key the store holds, in the order it keeps them -- which is the browser's and is not
+// promised to be anything, so a program that wants an order sorts.
+everyKey(kept)
+    val out = []
+
+    for i in 0..<kept.length
+        out.push(string(kept.key(i)))
+
+    out
 
 export storedKeys()
-    throw "storedKeys has no body yet"
+    val kept = held("storedKeys")
+
+    ok(everyKey(kept)) catch e -> refused(e)
 
 export clearStored()
-    throw "clearStored has no body yet"
+    val kept = held("clearStored")
+
+    ok(kept.clear()) catch e -> refused(e)
 
 // -- what rides along with every request ----------------------------------------------------------
 //
@@ -402,14 +751,81 @@ export clearStored()
 // rather than removing the first. That is `document.cookie`'s own trap, carried through rather than
 // papered over.
 
+// `document.cookie` is one string of `name=value` pairs joined by `"; "`, and both sides are
+// percent-decoded the way `setCookie` encodes them -- a literal `;` or `=` inside a value would
+// otherwise end the pair early or split it in the wrong place.
+cookiePairs(raw)
+    val jar = {}
+
+    if raw != ""
+        for part in split(raw, "; ")
+            val letters = chars(part)
+            val at = indexOf(part, "=")
+            val name = if at == null then part else join(slice(letters, 0, at), "")
+            val said = if at == null then "" else join(slice(letters, at + 1, letters.length), "")
+
+            jar[globalThis.decodeURIComponent(name)] = globalThis.decodeURIComponent(said)
+
+    jar
+
 export cookies()
-    throw "cookies has no body yet"
+    cookiePairs(string(page("cookies").cookie))
 
 export cookie(name)
-    throw "cookie has no body yet"
+    val jar = cookiePairs(string(page("cookie").cookie))
+
+    if has(jar, name) then jar[name] else null
 
 export setCookie(name, v, options = {})
-    throw "setCookie has no body yet"
+    val d = page("setCookie")
+
+    var written = globalThis.encodeURIComponent(name) + "=" + globalThis.encodeURIComponent(if v is string then v else string(v))
+
+    val path = options.path ?? ""
+    val domain = options.domain ?? ""
+    val maxAge = options.maxAge ?? null
+    val expires = options.expires ?? ""
+    val sameSite = options.sameSite ?? ""
+
+    if path != ""
+        written = written + "; Path=" + path
+
+    if domain != ""
+        written = written + "; Domain=" + domain
+
+    if maxAge != null
+        written = written + "; Max-Age=" + string(maxAge)
+
+    if expires != ""
+        written = written + "; Expires=" + expires
+
+    if sameSite != ""
+        if sameSite != "Lax" && sameSite != "Strict" && sameSite != "None"
+            throw s"`sameSite` is one of Lax, Strict and None, and this is ${sameSite}"
+
+        written = written + "; SameSite=" + sameSite
+
+    if (options.secure ?? false) == true
+        written = written + "; Secure"
+
+    d.cookie = written
+
+    null
 
 export deleteCookie(name, options = {})
-    throw "deleteCookie has no body yet"
+    val d = page("deleteCookie")
+
+    var written = globalThis.encodeURIComponent(name) + "=; Max-Age=0"
+
+    val path = options.path ?? ""
+    val domain = options.domain ?? ""
+
+    if path != ""
+        written = written + "; Path=" + path
+
+    if domain != ""
+        written = written + "; Domain=" + domain
+
+    d.cookie = written
+
+    null
