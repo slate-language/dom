@@ -2,12 +2,9 @@ import { createElement, createText, createComment, setAttribute, removeAttribute
     setChildren, setText, insertBefore, removeChild, splitText, release } from "../dom.slx"
 import { byId, query, children, tagName, nodeText, attribute, nodeKind, property,
     markup } from "../dom.slx"
-import { on, off, dispatch, observe, events, focus, blur, activeElement } from "../dom.slx"
-import { location, pushPath, replacePath, back, forward, onNavigate } from "../dom.slx"
-import { stored, store, unstore, storedKeys, clearStored } from "../dom.slx"
-import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
+import { on, off, dispatch, observe, events } from "../dom.slx"
 
-// A real page: what every name DOES.
+// A real page: what a node IS, and what happens to one.
 //
 //     npm install
 //     NODE_OPTIONS="--import ./tests-dom/setup.mjs" slate test --js tests-dom
@@ -20,325 +17,738 @@ import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
 //
 // **Every claim below is a paragraph of the specification, read as something to run.** The names are
 // the plan: each is one sentence from `slate:dom`'s own page, and the package is finished when all
-// of them are green against a document nobody wrote.
+// of them are green against a document nobody wrote. `doors.slx` beside this one carries the rest --
+// where the page is, where it has been, what it remembers and what it is carrying.
 //
 // **The suite dispatches its own events**, which is what `dispatch` is for -- the built-in module
 // had no way to and a harness had to reach through `setProperty` and an accessor installed on
 // `Element.prototype` to make a browser do something a person would have done. Nothing here fakes
 // an event: jsdom builds it and jsdom dispatches it.
 
+external globalThis
+
+// The container every test renders into, emptied before each one runs.
+holder() = byId("page")
+
+// What the last handler was given, and how many times two counting handlers were called. **A hook
+// shares what it prepares through the file's own `var`s**, there being nothing else to pass.
+var seen = null
+var counted = 0
+var countedAgain = 0
+var changes = null
+
+remember(e)
+    seen = e
+
+    null
+
+count(e)
+    counted = counted + 1
+
+    null
+
+countAgain(e)
+    countedAgain = countedAgain + 1
+
+    null
+
+stopIt(e)
+    e.stop()
+
+    null
+
+preventIt(e)
+    e.prevent()
+
+    null
+
+took(records)
+    changes = records
+
+    null
+
+// What a value matches, asked with the three patterns `external` names: a type test, a structure and
+// the one that takes anything.
+matched(v) =
+    v match
+        n @ number -> "a number"
+        { length } -> "an object with a length"
+        _ -> "only the name matched"
+
+@setup
+start_from_an_empty_page()
+    // **The import always succeeds and the COMMAND is what refuses**, so this file is left out where
+    // there is no page rather than failing on one. Running it with no document installed is the cheap
+    // check that the module still loads on a host that has none -- which is what the one declaration
+    // at the top of `dom.slx` buys, and what an `external document` would have taken away.
+    if host() == "interpreter" || globalThis.document == null
+        skip("this host has no document -- install one and run again")
+
+    setText(holder(), "")
+
+    seen = null
+    counted = 0
+    countedAgain = 0
+    changes = null
+
 @test
 CREATE_ELEMENT_ANSWERS_A_NODE_WHOSE_TAG_NAME_IS_THE_ONE_ASKED_FOR()
-    skip("the body is not written yet")
+    val el = createElement("section")
+
+    assert(el is external, "a node is the element itself and not an index into a table")
+    assertEq(tagName(el), "section")
+    assertEq(nodeKind(el), "element")
 
 @test
 CREATE_TEXT_ANSWERS_A_NODE_WHOSE_TAG_NAME_IS_NULL()
-    skip("the body is not written yet")
+    val said = createText("what it says")
+
+    assertEq(tagName(said), null)
+    assertEq(nodeKind(said), "text")
+    assertEq(nodeText(said), "what it says")
 
 @test
 CREATE_COMMENT_IS_TOLD_FROM_A_PIECE_OF_TEXT_BY_NODE_KIND()
-    skip("the body is not written yet")
+    val mark = createComment("where a component begins")
+
+    assertEq(tagName(mark), null)
+    assertEq(nodeKind(mark), "comment")
+    assertEq(nodeKind(createText("where a component begins")), "text")
 
 @test
 TWO_READS_OF_ONE_ELEMENT_ARE_EQUAL()
-    skip("the body is not written yet")
+    val once = byId("page")
+    val again = byId("page")
+
+    assert(once == again, "two reads of one element are one host value")
+
+    // And a node is a KEY, which is what the listener map and every consumer's per-node table need:
+    // an external hashes by the host value it holds rather than by the wrapper it crossed in.
+    val kept = Map()
+
+    kept.set(once, "held")
+
+    assertEq(kept.get(again), "held")
+    assertEq(kept.get(createElement("div")), null)
 
 @test
 A_NODE_MATCHES_NO_PATTERN_BUT_A_BARE_NAME()
-    skip("the body is not written yet")
+    assertEq(matched(createElement("div")), "only the name matched")
+    assertEq(matched(7), "a number")
+    assertEq(matched({ length: 1 }), "an object with a length")
 
 @test
 SET_ATTRIBUTE_WRITES_WHAT_ATTRIBUTE_READS_BACK()
-    skip("the body is not written yet")
+    val el = createElement("div")
+
+    setAttribute(el, "class", "row")
+
+    assertEq(attribute(el, "class"), "row")
+
+    // A number is written as slate prints it, a browser holding nothing but strings.
+    setAttribute(el, "tabindex", 2)
+
+    assertEq(attribute(el, "tabindex"), "2")
 
 @test
 REMOVE_ATTRIBUTE_LEAVES_ATTRIBUTE_ANSWERING_NULL()
-    skip("the body is not written yet")
+    val el = createElement("div")
+
+    setAttribute(el, "class", "row")
+    removeAttribute(el, "class")
+
+    assertEq(attribute(el, "class"), null)
+
+    // A name the node never carried reads the same way, and taking one off twice is not a fault.
+    assertEq(attribute(el, "never-written"), null)
+    assertEq(removeAttribute(el, "class"), null)
+
+    // `null` and `false` REMOVE, which is what a re-render writes for an attribute it no longer wants.
+    setAttribute(el, "class", "row")
+    setAttribute(el, "class", null)
+
+    assertEq(attribute(el, "class"), null)
+
+    setAttribute(el, "class", "row")
+    setAttribute(el, "class", false)
+
+    assertEq(attribute(el, "class"), null)
 
 @test
 A_BARE_ATTRIBUTE_READS_BACK_AS_TRUE()
-    skip("the body is not written yet")
+    val el = createElement("input")
+
+    setAttribute(el, "disabled", true)
+
+    assertEq(attribute(el, "disabled"), true)
+    assert(contains(markup(el), "disabled="), markup(el))
+
+    // A text node carries no attributes at all, and asking is an answer rather than a fault.
+    assertEq(attribute(createText("said"), "disabled"), null)
 
 @test
 SET_PROPERTY_AND_SET_ATTRIBUTE_ARE_TWO_DIFFERENT_THINGS_ON_AN_INPUT()
-    skip("the body is not written yet")
+    val field = createElement("input")
+
+    setAttribute(field, "value", "written")
+    setProperty(field, "value", "typed")
+
+    assertEq(attribute(field, "value"), "written")
+    assertEq(property(field, "value"), "typed")
 
 @test
 SET_CHILDREN_REPLACES_THE_WHOLE_LIST()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createElement("i"), createElement("b")])
+    setChildren(el, [createElement("u")])
+
+    assertEq(map(children(el), tagName), ["u"])
 
 @test
 SET_CHILDREN_WITH_AN_EMPTY_ARRAY_EMPTIES_THE_NODE()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createElement("i")])
+    setChildren(el, [])
+
+    assertEq(children(el), [])
+    assertEq(nodeText(el), "")
 
 @test
 SET_TEXT_REPLACES_EVERY_CHILD_WITH_ONE_PIECE_OF_TEXT()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createElement("i"), createElement("b")])
+    setText(el, "said")
+
+    assertEq(map(children(el), nodeKind), ["text"])
+    assertEq(nodeText(el), "said")
 
 @test
 INSERT_BEFORE_PUTS_A_NODE_IN_FRONT_OF_ANOTHER()
-    skip("the body is not written yet")
+    val el = holder()
+    val first = createElement("i")
+    val last = createElement("b")
+
+    setChildren(el, [first, last])
+    insertBefore(el, createElement("u"), last)
+
+    assertEq(map(children(el), tagName), ["i", "u", "b"])
+
+    // A node to go before that is somewhere else entirely is a sentence and not a silent append.
+    assertFaults(() -> insertBefore(el, createElement("s"), createElement("q")),
+        "not a child of this parent")
 
 @test
 INSERT_BEFORE_NULL_APPENDS()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createElement("i"), createElement("b")])
+    insertBefore(el, createElement("u"), null)
+
+    assertEq(map(children(el), tagName), ["i", "b", "u"])
 
 @test
 INSERT_BEFORE_MOVES_A_NODE_ALREADY_IN_THE_PAGE_RATHER_THAN_COPYING_IT()
-    skip("the body is not written yet")
+    val el = holder()
+    val first = createElement("i")
+    val last = createElement("b")
+
+    setChildren(el, [first, last])
+    insertBefore(el, last, first)
+
+    assertEq(map(children(el), tagName), ["b", "i"])
+    assert(children(el)[0] == last, "the node moved rather than being copied")
 
 @test
 REMOVE_CHILD_TAKES_ONE_NODE_OUT()
-    skip("the body is not written yet")
+    val el = holder()
+    val going = createElement("i")
+
+    setChildren(el, [going, createElement("b")])
+    removeChild(el, going)
+
+    assertEq(map(children(el), tagName), ["b"])
 
 @test
 REMOVE_CHILD_SAYS_SO_WHERE_THE_NODE_IS_SOMEWHERE_ELSE_ENTIRELY()
-    skip("the body is not written yet")
+    val el = holder()
+    val kid = createElement("i")
+
+    setChildren(el, [kid])
+
+    assertFaults(() -> removeChild(createElement("div"), kid), "not a child of this parent")
+
+    // And nothing was moved by the asking.
+    assertEq(map(children(el), tagName), ["i"])
 
 @test
 SPLIT_TEXT_ANSWERS_THE_TAIL_AND_LEAVES_THE_HEAD_IN_PLACE()
-    skip("the body is not written yet")
+    val el = holder()
+    val said = createText("abcdef")
+
+    setChildren(el, [said])
+
+    val tail = splitText(said, 3)
+
+    assertEq(nodeText(said), "abc")
+    assertEq(nodeText(tail), "def")
+    assertEq(map(children(el), nodeText), ["abc", "def"])
+
+    // Only a text node can be cut, and only at a position the text reaches.
+    assertFaults(() -> splitText(createElement("div"), 1), "takes a text node")
+    assertFaults(() -> splitText(createText("ab"), 9), "the text is 2 characters long")
 
 @test
 SPLIT_TEXT_COUNTS_CHARACTERS_AND_NOT_UTF16_UNITS()
-    skip("the body is not written yet")
+    val said = createText("a\u{1f44b}b")
+    val tail = splitText(said, 2)
+
+    assertEq(nodeText(said), "a\u{1f44b}")
+    assertEq(nodeText(tail), "b")
 
 @test
 RELEASE_DOES_NOTHING_AND_LEAVES_THE_NODE_IN_THE_PAGE()
-    skip("the body is not written yet")
+    val el = holder()
+    val kid = createElement("i")
+
+    setChildren(el, [kid])
+
+    assertEq(release(kid), null)
+
+    // The element is where it was, and everything still works on it -- there is no handle to give
+    // back and nothing was given back.
+    assertEq(map(children(el), tagName), ["i"])
+    assertEq(tagName(kid), "i")
+    assertEq(release(kid), null)
 
 @test
 BY_ID_FINDS_AN_ELEMENT()
-    skip("the body is not written yet")
+    val el = byId("page")
+
+    assertEq(tagName(el), "div")
+    assertEq(attribute(el, "id"), "page")
 
 @test
 BY_ID_ANSWERS_NULL_FOR_AN_ID_THAT_IS_NOT_THERE()
-    skip("the body is not written yet")
+    assertEq(byId("nothing-carries-this-id"), null)
 
 @test
 QUERY_TAKES_A_SELECTOR()
-    skip("the body is not written yet")
+    val kid = createElement("section")
+
+    setAttribute(kid, "class", "panel")
+    setChildren(holder(), [kid])
+
+    assert(query("#page section.panel") == kid, "a selector finds the element it names")
 
 @test
 QUERY_ANSWERS_NULL_WHERE_NOTHING_MATCHES()
-    skip("the body is not written yet")
+    assertEq(query("#page blockquote"), null)
 
 @test
 CHILDREN_ANSWERS_EVERY_CHILD_NODE_AND_NOT_ONLY_THE_ELEMENTS()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createText("before"), createElement("i"), createComment("after")])
+
+    assertEq(map(children(el), nodeKind), ["text", "element", "comment"])
 
 @test
 CHILDREN_ANSWERS_AN_ORDINARY_SLATE_ARRAY_IN_ORDER()
-    skip("the body is not written yet")
+    val el = holder()
+    val kids = [createElement("i"), createElement("b"), createElement("u")]
+
+    setChildren(el, kids)
+
+    val got = children(el)
+
+    assertEq(got.length, 3)
+    assertEq(map(got, tagName), ["i", "b", "u"])
+    assert(got[0] == kids[0], "the first child is the first node given")
+    assert(got.at(-1) == kids[2], "and an array method reaches the last")
+    assertEq(children(createElement("div")), [])
 
 @test
 TAG_NAME_IS_LOWER_CASE()
-    skip("the body is not written yet")
+    assertEq(tagName(createElement("DIV")), "div")
+    assertEq(tagName(createElement("section")), "section")
 
 @test
 TAG_NAME_IS_NULL_FOR_A_PIECE_OF_TEXT()
-    skip("the body is not written yet")
+    assertEq(tagName(createText("said")), null)
+    assertEq(tagName(createComment("said")), null)
 
 @test
 NODE_TEXT_ANSWERS_WHAT_THE_NODE_SAYS()
-    skip("the body is not written yet")
+    val el = holder()
+
+    setChildren(el, [createText("one "), createElement("i")])
+    setText(children(el)[1], "two")
+
+    assertEq(nodeText(el), "one two")
+    assertEq(nodeText(createText("said")), "said")
+    assertEq(nodeText(createElement("div")), "")
 
 @test
 NODE_KIND_TELLS_A_COMMENT_FROM_A_PIECE_OF_TEXT()
-    skip("the body is not written yet")
+    assertEq(nodeKind(createComment("mark")), "comment")
+    assertEq(nodeKind(createText("mark")), "text")
+    assertEq(nodeKind(createElement("div")), "element")
 
 @test
 NODE_KIND_ANSWERS_FRAGMENT_AND_DOCUMENT_AND_OTHER()
-    skip("the body is not written yet")
+    // A fragment, the document itself and an attribute node have no name in this module, so they are
+    // reached through the host directly -- which is what a program wanting one would do.
+    assertEq(nodeKind(globalThis.document.createDocumentFragment()), "fragment")
+    assertEq(nodeKind(globalThis.document), "document")
+    assertEq(nodeKind(globalThis.document.createAttribute("data-x")), "other")
 
 @test
 PROPERTY_ANSWERS_WHAT_THE_NODE_HOLDS_WHERE_ATTRIBUTE_ANSWERS_WHAT_ITS_MARKUP_SAID()
-    skip("the body is not written yet")
+    val field = createElement("input")
+
+    setAttribute(field, "value", "written")
+
+    assertEq(property(field, "value"), "written")
+
+    setProperty(field, "value", "typed")
+
+    assertEq(property(field, "value"), "typed")
+    assertEq(attribute(field, "value"), "written")
 
 @test
 PROPERTY_ANSWERS_NULL_FOR_A_VALUE_SLATE_CANNOT_HOLD()
-    skip("the body is not written yet")
+    val el = createElement("div")
+
+    // A style object, a node list and a name the node does not carry are one answer, which is what
+    // keeps a reader from having to tell them apart.
+    assertEq(property(el, "style"), null)
+    assertEq(property(el, "childNodes"), null)
+    assertEq(property(el, "parentNode"), null)
+    assertEq(property(el, "nothing-of-that-name"), null)
 
 @test
 PROPERTY_ANSWERS_A_WHOLE_NUMBER_AS_AN_INTEGER()
-    skip("the body is not written yet")
+    val el = createElement("div")
+
+    setChildren(el, [createElement("i"), createElement("b")])
+
+    val many = property(el, "childElementCount")
+
+    assertEq(many, 2)
+    assert(many is integer, "a whole number comes back an integer")
+
+    val box = createElement("input")
+
+    setProperty(box, "type", "checkbox")
+    setProperty(box, "checked", true)
+
+    assertEq(property(box, "checked"), true)
 
 @test
 MARKUP_ANSWERS_THE_OUTER_HTML_OF_AN_ELEMENT()
-    skip("the body is not written yet")
+    val el = createElement("p")
+
+    setAttribute(el, "class", "note")
+    setText(el, "said")
+
+    assertEq(markup(el), "<p class=\"note\">said</p>")
 
 @test
 MARKUP_ESCAPES_A_NODE_THAT_HAS_NO_OUTER_HTML()
-    skip("the body is not written yet")
+    assertEq(markup(createText("a < b & c > d")), "a &lt; b &amp; c &gt; d")
+    assertEq(markup(createText("")), "")
 
 @test
 A_HANDLER_IS_GIVEN_A_RECORD_OF_EIGHT_FIELDS_AND_NEVER_THE_EVENT()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    on(el, "click", remember)
+    dispatch(el, "click")
+
+    assertEq(keys(seen).sorted(),
+        ["button", "checked", "key", "mods", "prevent", "stop", "type", "value"])
+    assertEq(seen.type, "click")
+    assert(!(seen is external), "a handler is given a record and never the host's event")
 
 @test
 A_HANDLER_READS_VALUE_AND_CHECKED_OFF_A_FIELD()
-    skip("the body is not written yet")
+    val box = createElement("input")
+
+    setProperty(box, "type", "checkbox")
+    setProperty(box, "value", "yes")
+    setProperty(box, "checked", true)
+
+    on(box, "change", remember)
+    dispatch(box, "change")
+
+    assertEq(seen.value, "yes")
+    assertEq(seen.checked, true)
+
+    // A node that holds neither says so with `null` rather than with an invented empty string.
+    val el = createElement("div")
+
+    on(el, "click", remember)
+    dispatch(el, "click")
+
+    assertEq(seen.value, null)
+    assertEq(seen.checked, null)
 
 @test
 A_HANDLER_READS_KEY_OFF_A_KEYBOARD_EVENT()
-    skip("the body is not written yet")
+    val field = createElement("input")
+
+    on(field, "keydown", remember)
+    dispatch(field, { type: "keydown", key: "Enter" })
+
+    assertEq(seen.key, "Enter")
+    assertEq(seen.type, "keydown")
 
 @test
 MODS_IS_FOUR_BOOLEANS_AND_BUTTON_IS_AN_INTEGER()
-    skip("the body is not written yet")
+    val link = createElement("a")
+
+    on(link, "click", remember)
+    dispatch(link, { type: "click", button: 1, mods: { meta: true, shift: true } })
+
+    assertEq(seen.mods, { meta: true, ctrl: false, shift: true, alt: false })
+    assertEq(seen.button, 1)
+    assert(seen.button is integer, "a button is a whole number")
+
+    dispatch(link, "click")
+
+    assertEq(seen.mods, { meta: false, ctrl: false, shift: false, alt: false })
+    assertEq(seen.button, 0)
 
 @test
 BUTTON_IS_NULL_FOR_AN_EVENT_THAT_IS_NOT_A_MOUSE_EVENT()
-    skip("the body is not written yet")
+    val field = createElement("input")
+
+    on(field, "keyup", remember)
+    dispatch(field, { type: "keyup", key: "a" })
+
+    assertEq(seen.button, null)
+
+    on(field, "custom-thing", remember)
+    dispatch(field, "custom-thing")
+
+    assertEq(seen.button, null)
+    assertEq(seen.key, null)
 
 @test
 STOP_KEEPS_THE_EVENT_FROM_REACHING_A_PARENT()
-    skip("the body is not written yet")
+    val parent = holder()
+    val kid = createElement("button")
+
+    setChildren(parent, [kid])
+
+    on(parent, "click", count)
+    on(kid, "click", stopIt)
+
+    dispatch(kid, "click")
+
+    assertEq(counted, 0)
+
+    // And without it the click reaches the parent, which is what makes the line above a measurement.
+    off(kid, "click", stopIt)
+    dispatch(kid, "click")
+
+    assertEq(counted, 1)
 
 @test
 PREVENT_CANCELS_WHAT_THE_BROWSER_WOULD_HAVE_DONE()
-    skip("the body is not written yet")
+    val link = createElement("a")
+
+    on(link, "click", preventIt)
+
+    assertEq(dispatch(link, "click"), false)
+
+    // An event nothing may cancel is not cancelled by asking.
+    assertEq(dispatch(link, { type: "click", cancelable: false }), true)
 
 @test
 OFF_TAKES_BACK_THE_LISTENER_THAT_VERY_CLOSURE_INSTALLED()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    on(el, "click", count)
+    dispatch(el, "click")
+
+    assertEq(off(el, "click", count), null)
+
+    dispatch(el, "click")
+
+    assertEq(counted, 1)
 
 @test
 OFF_LEAVES_A_LISTENER_ANOTHER_CLOSURE_INSTALLED_ALONE()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    on(el, "click", count)
+    on(el, "click", countAgain)
+    off(el, "click", count)
+
+    dispatch(el, "click")
+
+    assertEq(counted, 0)
+    assertEq(countedAgain, 1)
 
 @test
 OFF_FOR_A_LISTENER_THAT_WAS_NEVER_ADDED_DOES_NOTHING()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    assertEq(off(el, "click", count), null)
+
+    on(el, "click", count)
+
+    // Another event's name and another closure each find nothing, and neither takes this one off.
+    assertEq(off(el, "keydown", count), null)
+    assertEq(off(el, "click", countAgain), null)
+
+    dispatch(el, "click")
+
+    assertEq(counted, 1)
 
 @test
 ON_TWICE_WITH_ONE_CLOSURE_INSTALLS_ONE_LISTENER()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    on(el, "click", count)
+    on(el, "click", count)
+
+    dispatch(el, "click")
+
+    assertEq(counted, 1)
+
+    // And one `off` is enough to take it back.
+    off(el, "click", count)
+    dispatch(el, "click")
+
+    assertEq(counted, 1)
 
 @test
 A_LISTENER_IS_TAKEN_OFF_THE_NODE_IT_WAS_PUT_ON_AND_NO_OTHER()
-    skip("the body is not written yet")
+    val one = createElement("button")
+    val other = createElement("button")
+
+    on(one, "click", count)
+    on(other, "click", count)
+    off(one, "click", count)
+
+    dispatch(one, "click")
+    dispatch(other, "click")
+
+    assertEq(counted, 1)
 
 @test
 DISPATCH_SENDS_WHAT_ON_READS()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    on(el, "click", remember)
+
+    assertEq(dispatch(el, "click"), true)
+    assertEq(seen.type, "click")
+
+    // An event with no `type` is a call that got it wrong, and it says so.
+    assertFaults(() -> dispatch(el, { key: "Enter" }), "an event with a `type`")
 
 @test
 DISPATCH_CHOOSES_THE_EVENT_CLASS_FROM_ITS_NAME()
-    skip("the body is not written yet")
+    val el = createElement("button")
+
+    // A `click` is a mouse event, so a handler telling a left click from a middle one reads a button
+    // off one that named none.
+    on(el, "click", remember)
+    dispatch(el, "click")
+
+    assertEq(seen.button, 0)
+
+    // A `keydown` is a keyboard event, and one named nothing in particular is neither.
+    on(el, "keydown", remember)
+    dispatch(el, "keydown")
+
+    assertEq(seen.button, null)
+
+    on(el, "settled", remember)
+    dispatch(el, "settled")
+
+    assertEq(seen.button, null)
+    assertEq(seen.key, null)
 
 @test
 DISPATCH_ANSWERS_FALSE_WHERE_A_HANDLER_CANCELLED_IT()
-    skip("the body is not written yet")
+    val el = createElement("a")
+
+    assertEq(dispatch(el, "click"), true)
+
+    on(el, "click", preventIt)
+
+    assertEq(dispatch(el, "click"), false)
 
 @test
-OBSERVE_REPORTS_A_CHILD_LIST_CHANGE_AS_COUNTS()
-    skip("the body is not written yet")
+async OBSERVE_REPORTS_A_CHILD_LIST_CHANGE_AS_COUNTS()
+    val el = holder()
+    val watcher = observe(el, { children: true }, took)
+
+    setChildren(el, [createElement("i"), createElement("b")])
+
+    await sleep(5)
+
+    watcher.disconnect()
+
+    assertEq(changes.length, 1)
+    assertEq(changes[0].type, "children")
+    assertEq(changes[0].added, 2)
+    assertEq(changes[0].removed, 0)
+    assertEq(changes[0].attribute, null)
 
 @test
-OBSERVE_CARRIES_NO_NODES_IN_A_RECORD()
-    skip("the body is not written yet")
+async OBSERVE_CARRIES_NO_NODES_IN_A_RECORD()
+    val el = holder()
+    val watcher = observe(el, { attributes: true }, took)
+
+    setAttribute(el, "data-said", "yes")
+
+    await sleep(5)
+
+    watcher.disconnect()
+
+    removeAttribute(el, "data-said")
+
+    assertEq(changes.length, 1)
+    assertEq(keys(changes[0]).sorted(), ["added", "attribute", "removed", "type"])
+    assertEq(changes[0].type, "attributes")
+    assertEq(changes[0].attribute, "data-said")
 
 @test
-OBSERVE_ANSWERS_AN_OBJECT_WHOSE_DISCONNECT_STOPS_IT()
-    skip("the body is not written yet")
+async OBSERVE_ANSWERS_AN_OBJECT_WHOSE_DISCONNECT_STOPS_IT()
+    val el = holder()
+    val watcher = observe(el, { children: true }, took)
+
+    assertEq(keys(watcher), ["disconnect"])
+
+    watcher.disconnect()
+
+    setChildren(el, [createElement("i")])
+
+    await sleep(5)
+
+    assertEq(changes, null)
 
 @test
 OBSERVE_REFUSES_OPTIONS_THAT_ASK_FOR_NOTHING()
-    skip("the body is not written yet")
+    assertFaults(() -> observe(holder(), { subtree: true }, took), "asks for none")
+    assertFaults(() -> observe(holder(), {}, took), "asks for none")
 
 @test
 EVENTS_SAYS_SO_WHERE_THE_HOST_HAS_NO_EVENT_SOURCE()
-    skip("the body is not written yet")
+    // jsdom has no `EventSource`, so this is the one name the suite measures by its refusal -- and
+    // what it says is which of the browser's things is missing.
+    assertFaults(() -> events("/updates"), "needs a browser's `EventSource`")
 
 @test
 EVENTS_REFUSES_A_LAST_EVENT_ID_RATHER_THAN_IGNORING_IT()
-    skip("the body is not written yet")
-
-@test
-FOCUS_MOVES_THE_CARET_AND_ACTIVE_ELEMENT_SAYS_WHERE_IT_IS()
-    skip("the body is not written yet")
-
-@test
-BLUR_TAKES_THE_CARET_AWAY()
-    skip("the body is not written yet")
-
-@test
-ACTIVE_ELEMENT_ANSWERS_NULL_FOR_THE_BODY()
-    skip("the body is not written yet")
-
-@test
-LOCATION_IS_A_RECORD_OF_EIGHT_FIELDS()
-    skip("the body is not written yet")
-
-@test
-QUERY_AND_HASH_CARRY_THEIR_PUNCTUATION_AND_ARE_NEVER_NULL()
-    skip("the body is not written yet")
-
-@test
-PUSH_PATH_MOVES_THE_ADDRESS_BAR()
-    skip("the body is not written yet")
-
-@test
-PUSH_PATH_DOES_NOT_RAISE_ON_NAVIGATE()
-    skip("the body is not written yet")
-
-@test
-REPLACE_PATH_MOVES_THE_ADDRESS_BAR_WITHOUT_ADDING_A_STEP()
-    skip("the body is not written yet")
-
-@test
-BACK_AND_FORWARD_MOVE_THROUGH_WHAT_THE_PAGE_HAS_VISITED()
-    skip("the body is not written yet")
-
-@test
-ON_NAVIGATE_IS_TOLD_ABOUT_A_MOVEMENT_THE_USER_MADE()
-    skip("the body is not written yet")
-
-@test
-STORE_AND_STORED_ROUND_TRIP_A_STRING()
-    skip("the body is not written yet")
-
-@test
-STORED_ANSWERS_OK_WITH_NULL_FOR_A_KEY_THAT_IS_NOT_THERE()
-    skip("the body is not written yet")
-
-@test
-STORED_ANSWERS_A_FAILURE_WHERE_THE_BROWSER_KEEPS_NOTHING()
-    skip("the body is not written yet")
-
-@test
-STORE_WRITES_A_VALUE_THAT_IS_NOT_A_STRING_AS_SLATE_PRINTS_IT()
-    skip("the body is not written yet")
-
-@test
-UNSTORE_TAKES_ONE_KEY_OUT()
-    skip("the body is not written yet")
-
-@test
-STORED_KEYS_ANSWERS_EVERY_KEY_THE_STORE_HOLDS()
-    skip("the body is not written yet")
-
-@test
-CLEAR_STORED_EMPTIES_THE_STORE()
-    skip("the body is not written yet")
-
-@test
-SET_COOKIE_AND_COOKIE_ROUND_TRIP_A_VALUE()
-    skip("the body is not written yet")
-
-@test
-COOKIE_ANSWERS_NULL_FOR_A_NAME_THAT_IS_NOT_SET()
-    skip("the body is not written yet")
-
-@test
-COOKIES_ANSWERS_EVERY_COOKIE_THE_DOCUMENT_IS_CARRYING()
-    skip("the body is not written yet")
-
-@test
-A_COOKIE_VALUE_IS_PERCENT_ENCODED_AND_ITS_OPTIONS_ARE_NOT()
-    skip("the body is not written yet")
-
-@test
-DELETE_COOKIE_NEEDS_THE_SAME_PATH_THE_SET_WAS_GIVEN()
-    skip("the body is not written yet")
+    // **What the CALL got wrong is read before what the HOST has not got**, so this says the same
+    // thing on a host that does have an `EventSource`.
+    assertFaults(() -> events("/updates", { lastEventId: "7" }), "cannot be given a `lastEventId`")

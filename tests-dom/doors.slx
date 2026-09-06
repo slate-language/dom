@@ -1,0 +1,329 @@
+import { createElement, createText, setChildren, setText, setAttribute } from "../dom.slx"
+import { byId, query, tagName, attribute, markup } from "../dom.slx"
+import { focus, blur, activeElement } from "../dom.slx"
+import { location, pushPath, replacePath, back, forward, onNavigate } from "../dom.slx"
+import { stored, store, unstore, storedKeys, clearStored } from "../dom.slx"
+import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
+
+// The page's other three doors, and the fourth that rides along with every request.
+//
+//     npm install
+//     NODE_OPTIONS="--import ./tests-dom/setup.mjs" slate test --js tests-dom
+//
+// **Where the page is, where it has been, what it remembers and what it is carrying**: `focus` and
+// the two beside it, `location` and the four movements, `localStorage` as results, and
+// `document.cookie` as four names. `dom.slx` beside this one is where a node is made, read and
+// listened to.
+//
+// **jsdom rather than a fake document written beside the code it checks**, which is what makes the
+// answers here worth anything: a shim would agree with the module by construction, and jsdom is
+// somebody else's reading of the same specification.
+
+external globalThis
+
+// The container every test renders into, emptied before each one runs.
+holder() = byId("page")
+
+// What the last navigation handler was told, and how many times a second one was called.
+var seen = null
+var counted = 0
+
+remember(where)
+    seen = where
+
+    null
+
+count(where)
+    counted = counted + 1
+
+    null
+
+// A store that refuses every operation, which is what a browser told to keep no data does and what a
+// quota that is full does on the write.
+refusingStore()
+    val store = globalThis.Object.new()
+
+    store.getItem = (k) -> globalThis.Object.new().nothing.atAll
+    store.setItem = (k, v) -> globalThis.Object.new().nothing.atAll
+    store.removeItem = (k) -> globalThis.Object.new().nothing.atAll
+    store.clear = () -> globalThis.Object.new().nothing.atAll
+    store.key = (i) -> globalThis.Object.new().nothing.atAll
+    store.length = 0
+
+    store
+
+@setup
+start_from_an_empty_page()
+    // **The import always succeeds and the COMMAND is what refuses**, so this file is left out where
+    // there is no page rather than failing on one. Running it with no document installed is the cheap
+    // check that the module still loads on a host that has none.
+    if host() == "interpreter" || globalThis.document == null
+        skip("this host has no document -- install one and run again")
+
+    setText(holder(), "")
+
+    seen = null
+    counted = 0
+
+    replacePath("/")
+
+@test
+FOCUS_MOVES_THE_CARET_AND_ACTIVE_ELEMENT_SAYS_WHERE_IT_IS()
+    val field = createElement("input")
+
+    setChildren(holder(), [field])
+    focus(field)
+
+    assert(activeElement() == field, "the caret is where it was put")
+
+@test
+BLUR_TAKES_THE_CARET_AWAY()
+    val field = createElement("input")
+
+    setChildren(holder(), [field])
+    focus(field)
+    blur(field)
+
+    assertEq(activeElement(), null)
+
+@test
+ACTIVE_ELEMENT_ANSWERS_NULL_FOR_THE_BODY()
+    // A browser answers the `<body>` for "nothing focused", and this answers `null` for the body too
+    // -- one value to check rather than two.
+    assertEq(activeElement(), null)
+    assert(query("body") != null, "the body is there to have been answered")
+
+@test
+LOCATION_IS_A_RECORD_OF_EIGHT_FIELDS()
+    val here = location()
+
+    assertEq(keys(here).sorted(),
+        ["hash", "host", "hostname", "href", "path", "port", "protocol", "query"])
+    assertEq(here.protocol, "https:")
+    assertEq(here.hostname, "example.test")
+    assertEq(here.path, "/")
+
+@test
+QUERY_AND_HASH_CARRY_THEIR_PUNCTUATION_AND_ARE_NEVER_NULL()
+    replacePath("/notes?a=1#top")
+
+    val there = location()
+
+    assertEq(there.path, "/notes")
+    assertEq(there.query, "?a=1")
+    assertEq(there.hash, "#top")
+
+    replacePath("/notes")
+
+    assertEq(location().query, "")
+    assertEq(location().hash, "")
+
+@test
+PUSH_PATH_MOVES_THE_ADDRESS_BAR()
+    pushPath("/notes/7")
+
+    assertEq(location().path, "/notes/7")
+    assertEq(location().href, "https://example.test/notes/7")
+
+@test
+async PUSH_PATH_DOES_NOT_RAISE_ON_NAVIGATE()
+    // A browser raises `popstate` for a movement the USER made and never for a push the program made
+    // itself, so a router renders after its own push and waits to be told about everything else.
+    onNavigate(remember)
+    pushPath("/notes/7")
+
+    await sleep(5)
+
+    assertEq(seen, null)
+
+@test
+REPLACE_PATH_MOVES_THE_ADDRESS_BAR_WITHOUT_ADDING_A_STEP()
+    val steps = globalThis.history.length
+
+    replacePath("/notes/8")
+
+    assertEq(location().path, "/notes/8")
+    assertEq(globalThis.history.length, steps)
+
+    pushPath("/notes/9")
+
+    assertEq(globalThis.history.length, steps + 1)
+
+@test
+async BACK_AND_FORWARD_MOVE_THROUGH_WHAT_THE_PAGE_HAS_VISITED()
+    pushPath("/one")
+    pushPath("/two")
+
+    assertEq(location().path, "/two")
+
+    back()
+
+    await sleep(20)
+
+    assertEq(location().path, "/one")
+
+    forward()
+
+    await sleep(20)
+
+    assertEq(location().path, "/two")
+
+@test
+async ON_NAVIGATE_IS_TOLD_ABOUT_A_MOVEMENT_THE_USER_MADE()
+    onNavigate(remember)
+
+    pushPath("/one")
+    pushPath("/two")
+
+    back()
+
+    await sleep(20)
+
+    assertEq(seen, "/one")
+
+    // The handler is REPLACED rather than added to, so what the module holds is one of them.
+    onNavigate(count)
+
+    forward()
+
+    await sleep(20)
+
+    assertEq(seen, "/one")
+    assertEq(counted, 1)
+
+@test
+STORE_AND_STORED_ROUND_TRIP_A_STRING()
+    assertEq(store("theme", "dark"), { ok: true, value: null })
+    assertEq(stored("theme"), { ok: true, value: "dark" })
+
+    clearStored()
+
+@test
+STORED_ANSWERS_OK_WITH_NULL_FOR_A_KEY_THAT_IS_NOT_THERE()
+    // Nothing went wrong; there is nothing stored -- which is a value and not a failure.
+    assertEq(stored("nothing-under-this-key"), { ok: true, value: null })
+
+@test
+STORED_ANSWERS_A_FAILURE_WHERE_THE_BROWSER_KEEPS_NOTHING()
+    // A browser out of quota, or one told to keep no data, refuses the operation itself. The store is
+    // swapped for one that does exactly that, and what comes back is a result rather than a fault.
+    val real = globalThis.localStorage
+
+    globalThis.localStorage = refusingStore()
+
+    val answer = stored("theme")
+    val wrote = store("theme", "dark")
+
+    globalThis.localStorage = real
+
+    assertEq(answer.ok, false)
+    assert(contains(answer.error, "not letting the page use"), answer.error)
+    assertEq(wrote.ok, false)
+
+@test
+STORE_WRITES_A_VALUE_THAT_IS_NOT_A_STRING_AS_SLATE_PRINTS_IT()
+    store("count", 42)
+
+    assertEq(stored("count"), { ok: true, value: "42" })
+
+    store("on", true)
+
+    assertEq(stored("on"), { ok: true, value: "true" })
+
+    clearStored()
+
+@test
+UNSTORE_TAKES_ONE_KEY_OUT()
+    store("theme", "dark")
+    store("size", "large")
+
+    assertEq(unstore("theme"), { ok: true, value: null })
+    assertEq(stored("theme"), { ok: true, value: null })
+    assertEq(stored("size"), { ok: true, value: "large" })
+
+    // A key that was never there is not a failure either.
+    assertEq(unstore("theme"), { ok: true, value: null })
+
+    clearStored()
+
+@test
+STORED_KEYS_ANSWERS_EVERY_KEY_THE_STORE_HOLDS()
+    clearStored()
+    store("theme", "dark")
+    store("size", "large")
+
+    val held = storedKeys()
+
+    assertEq(held.ok, true)
+    assertEq(held.value.sorted(), ["size", "theme"])
+
+    clearStored()
+
+    assertEq(storedKeys(), { ok: true, value: [] })
+
+@test
+CLEAR_STORED_EMPTIES_THE_STORE()
+    store("theme", "dark")
+
+    assertEq(clearStored(), { ok: true, value: null })
+    assertEq(storedKeys(), { ok: true, value: [] })
+    assertEq(stored("theme"), { ok: true, value: null })
+
+@test
+SET_COOKIE_AND_COOKIE_ROUND_TRIP_A_VALUE()
+    setCookie("theme", "dark")
+
+    assertEq(cookie("theme"), "dark")
+
+    deleteCookie("theme")
+
+@test
+COOKIE_ANSWERS_NULL_FOR_A_NAME_THAT_IS_NOT_SET()
+    // Reading `document.cookie` cannot fail the way a quota can, so a name that is not set is `null`
+    // rather than a fault.
+    assertEq(cookie("nothing-under-this-name"), null)
+
+@test
+COOKIES_ANSWERS_EVERY_COOKIE_THE_DOCUMENT_IS_CARRYING()
+    setCookie("theme", "dark")
+    setCookie("size", "large")
+
+    val jar = cookies()
+
+    assertEq(jar.theme, "dark")
+    assertEq(jar.size, "large")
+
+    deleteCookie("theme")
+    deleteCookie("size")
+
+    assertEq(cookie("theme"), null)
+
+@test
+A_COOKIE_VALUE_IS_PERCENT_ENCODED_AND_ITS_OPTIONS_ARE_NOT()
+    // A `;` or an `=` inside a value would otherwise end the pair or split it in the wrong place.
+    setCookie("note", "a=b; c", { path: "/", sameSite: "Lax" })
+
+    assertEq(cookie("note"), "a=b; c")
+    assert(contains(globalThis.document.cookie, "note=a%3Db%3B%20c"), globalThis.document.cookie)
+
+    deleteCookie("note", { path: "/" })
+
+    // The three the browser reads as its own syntax are refused where they are not what it takes.
+    assertFaults(() -> setCookie("note", "x", { sameSite: "Sometimes" }), "one of Lax, Strict and None")
+
+@test
+DELETE_COOKIE_NEEDS_THE_SAME_PATH_THE_SET_WAS_GIVEN()
+    // A cookie is identified by its name, its path and its domain together, so a path-less delete
+    // after a set with a path writes a SECOND cookie rather than removing the first.
+    pushPath("/notes/7")
+    setCookie("theme", "dark", { path: "/" })
+
+    // The page is under `/notes`, so a delete that names no path names THAT one, and what it writes
+    // is a second cookie rather than a removal of the first.
+    deleteCookie("theme")
+
+    assertEq(cookie("theme"), "dark")
+
+    deleteCookie("theme", { path: "/" })
+
+    assertEq(cookie("theme"), null)
