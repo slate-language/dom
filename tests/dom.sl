@@ -21,201 +21,313 @@ import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
 // instead, this file would not compile and no test in it would run -- which is exactly the failure
 // these tests are here to notice.
 //
-// Each body below is one call wrapped in `assertFaults`, checking the sentence names the host rather
-// than the value:
+// Each body below is one call whose refusal is read and asked what it says, the sentence naming the
+// host rather than the value:
 //
-//     assertFaults(() -> createElement("div"), "no JavaScript host")
+//     refused(() -> createElement("div"), refusal)
 //
-// and the three at the end are about the surface rather than about any one name.
+// and the four at the end are about the surface rather than about any one name.
+//
+// **The file runs on two hosts and the sentence is not the same on both.** The interpreter refuses in
+// the language's own words -- there is no JavaScript host at all -- and a JavaScript host with no page
+// refuses in this module's, naming the document, the window, the store or the `EventSource` it has
+// not got. `refusal` is that difference in one place, and the sixteen names that want a node are the
+// interpreter's alone.
+
+import * as ours from "../dom.slx"
+import * as builtin from slate:dom
+
+external globalThis
+
+// A stand-in for a node. **On a host with no JavaScript there is nothing else an external can be**:
+// the declaration is accepted everywhere, and the first thing done to the value it bound is what
+// refuses. So handing this to a name that wants a node is what makes the refusal below the one this
+// file is measuring.
+val node = globalThis
+
+// **What a refusal SAYS is not one sentence, because this file runs on two hosts that lack a page
+// for different reasons.** The interpreter refuses in the language's own words, naming the host
+// operation; a JavaScript host with no document refuses in this module's, naming what it has not got.
+val refusal = if host() == "interpreter" then "the interpreter has no JavaScript host"
+    else "this JavaScript host has none"
+
+// **The names that take a NODE are the interpreter's alone.** A JavaScript host with no page answers
+// an ordinary property read on the global object rather than refusing it, so there is nothing there
+// that reads as a node -- and a name given one would be measuring the global object instead of the
+// refusal. The names that reach the document, the window or the store first are measured on both.
+needsNode()
+    if host() != "interpreter"
+        skip("a node cannot be stood in for on a host that answers property reads")
+
+// What a call said when it refused, or a sentence saying it did not refuse at all.
+//
+// **A refusal is read through `catch` rather than asserted with `assertFaults`**, because what a
+// refusal SAYS is the whole of what this file measures: a caught fault hands its message over as an
+// ordinary value, and every test below asks whether that sentence names the host. It is also the
+// only spelling the interpreter runs -- `assertFaults` over a callback that faults below its own
+// frame panics the runner there, while the same call caught by `catch` refuses correctly.
+saidBy(f) = ran(f) catch e -> e.message
+
+ran(f)
+    f()
+
+    "nothing was refused"
+
+// One refusal, and the part of its sentence that has to be in it. Answers the whole sentence, so a
+// test may go on to ask what else it does and does not say.
+refused(f, expected)
+    val said = saidBy(f)
+
+    assert(contains(said, expected), said)
+
+    said
 
 @test
 createElement_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> createElement("div"), refusal)
 
 @test
 createText_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> createText("said"), refusal)
 
 @test
 createComment_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> createComment("mark"), refusal)
 
 @test
 setAttribute_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> setAttribute(node, "class", "row"), refusal)
 
 @test
 removeAttribute_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> removeAttribute(node, "class"), refusal)
 
 @test
 setProperty_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> setProperty(node, "value", "typed"), refusal)
 
 @test
 setChildren_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> setChildren(node, []), refusal)
 
 @test
 setText_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    // **The sentence is not asserted here and is everywhere else.** Writing a property through the
+    // dotted form is the one host operation the interpreter words as though the value were an
+    // ordinary object, so what this measures is that the call is refused at all.
+    assert(contains(saidBy(() -> setText(node, "said")), "external"),
+        saidBy(() -> setText(node, "said")))
 
 @test
 insertBefore_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> insertBefore(node, node, null), refusal)
 
 @test
 removeChild_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> removeChild(node, node), refusal)
 
 @test
 splitText_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> splitText(node, 1), refusal)
 
 @test
-release_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+release_IS_A_NO_OP_AND_REACHES_NO_HOST_AT_ALL()
+    // **There is no handle table here and therefore nothing to give back**, so `release` is a no-op
+    // that touches no host -- which is why it answers rather than refusing where every other name
+    // refuses. A consumer written against the built-in module calls it and nothing happens.
+    assertEq(release(node), null)
+    assertEq(release(null), null)
 
 @test
 byId_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> byId("app"), refusal)
 
 @test
 query_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> query("#app"), refusal)
 
 @test
 children_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> children(node), refusal)
 
 @test
 tagName_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> tagName(node), refusal)
 
 @test
 nodeText_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> nodeText(node), refusal)
 
 @test
 attribute_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> attribute(node, "class"), refusal)
 
 @test
 nodeKind_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> nodeKind(node), refusal)
 
 @test
 property_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> property(node, "value"), refusal)
 
 @test
 markup_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> markup(node), refusal)
 
 @test
 on_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    needsNode()
+
+    refused(() -> on(node, "click", ran), refusal)
 
 @test
-off_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+off_IS_A_NO_OP_FOR_A_LISTENER_THAT_WAS_NEVER_INSTALLED()
+    // `off` reaches the host only to abort a listener this module installed, and on a host with no
+    // page there is none -- so it answers, exactly as taking off a listener that was never added
+    // does in a browser.
+    assertEq(off(node, "click", ran), null)
 
 @test
 dispatch_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> dispatch(node, "click"), refusal)
 
 @test
 observe_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> observe(node, { children: true }, ran), refusal)
 
 @test
 events_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> events("/updates"), refusal)
 
 @test
 focus_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> focus(node), refusal)
 
 @test
 blur_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> blur(node), refusal)
 
 @test
 activeElement_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> activeElement(), refusal)
 
 @test
 location_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> location(), refusal)
 
 @test
 pushPath_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> pushPath("/notes/7"), refusal)
 
 @test
 replacePath_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> replacePath("/notes/7"), refusal)
 
 @test
 back_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> back(), refusal)
 
 @test
 forward_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> forward(), refusal)
 
 @test
 onNavigate_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> onNavigate(ran), refusal)
 
 @test
 stored_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> stored("theme"), refusal)
 
 @test
 store_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> store("theme", "dark"), refusal)
 
 @test
 unstore_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> unstore("theme"), refusal)
 
 @test
 storedKeys_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> storedKeys(), refusal)
 
 @test
 clearStored_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> clearStored(), refusal)
 
 @test
 cookies_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> cookies(), refusal)
 
 @test
 cookie_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> cookie("theme"), refusal)
 
 @test
 setCookie_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> setCookie("theme", "dark"), refusal)
 
 @test
 deleteCookie_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
-    skip("the body is not written yet")
+    refused(() -> deleteCookie("theme"), refusal)
 
 @test
 THE_MODULE_IMPORTS_WHERE_THERE_IS_NO_DOCUMENT_AT_ALL()
-    skip("the body is not written yet")
+    // **The import is the first assertion in this file**, and it has already happened by the time
+    // this runs: one `external globalThis`, whose path every host has, with every other host value
+    // read inside the function that wants it. An `external document` at the top of the module would
+    // take the whole file with it here and no test in it would run.
+    assert(host() != "browser", "this suite runs where there is no page")
+    assertEq(keys(ours).length, 44)
+    assert(ours.byId is function, "a name is bound and it is the module's own")
 
 @test
 EVERY_NAME_THE_MODULE_EXPORTS_IS_A_FUNCTION()
-    skip("the body is not written yet")
+    for name in keys(ours)
+        assert(ours[name] is function, name + " is a function")
 
 @test
 THE_EXPORT_LIST_IS_THE_ONE_slate_dom_HAS_NAME_FOR_NAME()
-    skip("the body is not written yet")
+    // **A consumer migrates by changing one import line**, which is only true while the two lists are
+    // the same list. `slate:dom` exists on every host and refuses on all but one, so it can be
+    // imported here and asked what it exports.
+    assertEq(keys(ours).sorted(), keys(builtin).sorted())
 
 @test
 A_REFUSAL_NAMES_THE_HOST_AND_NOT_THE_HANDLE_TABLE_THAT_IS_NO_LONGER_THERE()
-    skip("the body is not written yet")
+    val said = refused(() -> byId("app"), refusal)
+
+    // The built-in module hands out an index into a table and says so when one is stale. There is no
+    // table here, so no refusal may send a reader looking for one.
+    assert(!contains(said, "released"), said)
+    assert(!contains(said, "handle"), said)
