@@ -14,12 +14,12 @@ import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
 // module loads, that every name is there, and that calling one raises rather than answering
 // something plausible. `tests-dom/dom.slx` is where behaviour is measured, against a real page.
 //
-// **The import at the top IS the first assertion.** `slate:dom` exists everywhere and refuses
-// everywhere, because a refusal at the import is a complaint about the module and sends a reader
-// looking for a spelling mistake in the one line that is right; this package keeps that rule by
-// declaring one external, `globalThis`, whose path every host has. If that were `external document`
-// instead, this file would not compile and no test in it would run -- which is exactly the failure
-// these tests are here to notice.
+// **The import at the top IS the first assertion.** This module imports everywhere and refuses
+// only when a name is called, because a refusal at the import is a complaint about the module and
+// sends a reader looking for a spelling mistake in the one line that is right. The package keeps
+// that rule by declaring one external, `globalThis`, whose path every host has. If that were
+// `external document` instead, this file would not compile and no test in it would run -- which is
+// exactly the failure these tests are here to notice.
 //
 // Each body below is one call whose refusal is read and asked what it says, the sentence naming the
 // host rather than the value:
@@ -35,7 +35,6 @@ import { cookies, cookie, setCookie, deleteCookie } from "../dom.slx"
 // interpreter's alone.
 
 import * as ours from "../dom.slx"
-import * as builtin from slate:dom
 
 external globalThis
 
@@ -303,11 +302,19 @@ EVERY_NAME_THE_MODULE_EXPORTS_IS_A_FUNCTION()
         assert(ours[name] is function, name + " is a function")
 
 @test
-THE_EXPORT_LIST_IS_THE_ONE_slate_dom_HAS_NAME_FOR_NAME()
-    // **A consumer migrates by changing one import line**, which is only true while the two lists are
-    // the same list. `slate:dom` exists on every host and refuses on all but one, so it can be
-    // imported here and asked what it exports.
-    assertEq(keys(ours).sorted(), keys(builtin).sorted())
+THE_EXPORT_LIST_IS_THE_ONE_slate_dom_HAD_NAME_FOR_NAME()
+    // **A consumer migrated by changing one import line**, which was only true while the two lists
+    // were the same list. The built-in is gone from slate, so the list is written down here: it is
+    // the forty-four names `docs/library/dom.md` in the slate repository specifies, and a name added
+    // or dropped is a change to what every consumer imports.
+    val specified = ["activeElement", "attribute", "back", "blur", "byId", "children", "clearStored",
+        "cookie", "cookies", "createComment", "createElement", "createText", "deleteCookie",
+        "dispatch", "events", "focus", "forward", "insertBefore", "location", "markup", "nodeKind",
+        "nodeText", "observe", "off", "on", "onNavigate", "property", "pushPath", "query", "release",
+        "removeAttribute", "removeChild", "replacePath", "setAttribute", "setChildren", "setCookie",
+        "setProperty", "setText", "splitText", "store", "stored", "storedKeys", "tagName", "unstore"]
+
+    assertEq(keys(ours).sorted(), specified)
 
 @test
 A_REFUSAL_NAMES_THE_HOST_AND_NOT_THE_HANDLE_TABLE_THAT_IS_NO_LONGER_THERE()
