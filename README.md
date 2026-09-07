@@ -4,7 +4,7 @@ The document, as a package — the same surface [`slate:dom`](https://slatelang.
 written in [slate](https://github.com/slate-language/slate) on top of `external`.
 
 ```
-slate add github.com/slate-language/dom
+slate install github.com/slate-language/dom
 ```
 
 ```slate
