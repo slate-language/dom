@@ -36,13 +36,20 @@ back; the element stays exactly where it is in the page, which is what `release`
 on the export list so that a consumer written against the built-in module — lath calls it in two
 places — compiles and runs unchanged.
 
-**An event arrives as a record of eight fields, built here.** `{ type, value, checked, key, mods,
-button, stop, prevent }`, where `mods` is `{ meta, ctrl, shift, alt }` and `button` is an integer or
-`null`. Handing the host's event over as an external would put a value in a program's hands that it
-could not print, compare or store, and would make every handler in every consumer read host
-properties instead of slate fields. `mods` and `button` are there because a link cannot be written
-without them: a framework that intercepts a click has to let a cmd-click, a ctrl-click, a shift-click
-and a middle click through to the browser.
+**An event arrives as a record of ten fields, built here.** `{ type, value, checked, key, mods,
+button, stop, prevent, target, closest }`, where `mods` is `{ meta, ctrl, shift, alt }` and `button`
+is an integer or `null`. Handing the host's event over as an external would put a value in a
+program's hands that it could not print, compare or store, and would make every handler in every
+consumer read host properties instead of slate fields. `mods` and `button` are there because a link
+cannot be written without them: a framework that intercepts a click has to let a cmd-click, a
+ctrl-click, a shift-click and a middle click through to the browser.
+
+**`target` is the node the event originated on**, the same kind of node value every other name in
+this package hands out — not an external kept apart as a special case. It is what a handler installed
+on a parent for several children (a menu, a tab list) reads to learn which child was hit.
+`closest(selector)` answers the nearest ancestor-or-self of `target` matching `selector`, or `null`
+when none does — `Element.closest`, read off `target` after climbing to its parent element where
+`target` is a text node, which has no `closest` of its own.
 
 **`off` needs the same JavaScript function `on` handed over, and slate cannot name it**, so the
 package keeps its own map. A slate closure crosses outward as a *fresh* JavaScript function every
@@ -145,7 +152,7 @@ name, and that calling one refuses rather than answering something plausible. Th
 48; a JavaScript host with no page runs the 32 that reach the document, the window or the store before
 they reach a node, and leaves the other 16 out — there being nothing on that host that reads as a node.
 
-**The last is the one that says what the names DO** — 79 tests against a real
+**The last is the one that says what the names DO** — 82 tests against a real
 [jsdom](https://github.com/jsdom/jsdom) document, `tests-dom/dom.slx` for what a node is and what
 happens to one and `tests-dom/doors.slx` for where the page is, where it has been, what it remembers
 and what it is carrying. jsdom is a dev dependency of this repository and of nothing else; a program

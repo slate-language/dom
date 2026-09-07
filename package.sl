@@ -1,6 +1,6 @@
 {
     name: "dom",
-    version: "0.1.1",
+    version: "0.2.0",
 
     // The whole surface, and the same forty-four names `slate:dom` exports. A consumer changes one
     // import line and nothing else.

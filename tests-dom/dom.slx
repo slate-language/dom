@@ -462,14 +462,15 @@ MARKUP_ESCAPES_A_NODE_THAT_HAS_NO_OUTER_HTML()
     assertEq(markup(createText("")), "")
 
 @test
-A_HANDLER_IS_GIVEN_A_RECORD_OF_EIGHT_FIELDS_AND_NEVER_THE_EVENT()
+A_HANDLER_IS_GIVEN_A_RECORD_OF_TEN_FIELDS_AND_NEVER_THE_EVENT()
     val el = createElement("button")
 
     on(el, "click", remember)
     dispatch(el, "click")
 
     assertEq(keys(seen).sorted(),
-        ["button", "checked", "key", "mods", "prevent", "stop", "type", "value"])
+        ["button", "checked", "closest", "key", "mods", "prevent", "stop", "target", "type",
+            "value"])
     assertEq(seen.type, "click")
     assert(!(seen is external), "a handler is given a record and never the host's event")
 
@@ -536,6 +537,45 @@ BUTTON_IS_NULL_FOR_AN_EVENT_THAT_IS_NOT_A_MOUSE_EVENT()
 
     assertEq(seen.button, null)
     assertEq(seen.key, null)
+
+@test
+TARGET_IS_THE_NODE_THE_EVENT_ORIGINATED_ON()
+    val li = createElement("li")
+    val kid = createElement("button")
+
+    setChildren(li, [kid])
+
+    on(li, "click", remember)
+    dispatch(kid, "click")
+
+    assertEq(seen.target, kid)
+
+@test
+CLOSEST_ANSWERS_THE_NEAREST_ANCESTOR_OR_SELF_MATCHING_THE_SELECTOR()
+    val li = createElement("li")
+    val kid = createElement("button")
+
+    setChildren(li, [kid])
+
+    on(li, "click", remember)
+    dispatch(kid, "click")
+
+    assertEq(seen.closest("li"), li)
+    assertEq(seen.closest("table"), null)
+
+@test
+CLOSEST_WALKS_UP_FROM_A_TEXT_NODE_TARGET()
+    val li = createElement("li")
+    val said = createText("said")
+
+    setChildren(li, [said])
+
+    on(li, "click", remember)
+    dispatch(said, "click")
+
+    assertEq(seen.target, said)
+    assertEq(seen.closest("li"), li)
+    assertEq(seen.closest("table"), null)
 
 @test
 STOP_KEEPS_THE_EVENT_FROM_REACHING_A_PARENT()

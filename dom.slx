@@ -366,8 +366,8 @@ export markup(node)
 // -- events -----------------------------------------------------------------------------------
 //
 // **A handler is given a RECORD and never the event**: `{ type, value, checked, key, mods, button,
-// stop, prevent }`, eight fields built here from the host's event. A `MouseEvent` has no
-// representation in slate, and handing one over as an external would put a value in a program's
+// stop, prevent, target, closest }`, ten fields built here from the host's event. A `MouseEvent` has
+// no representation in slate, and handing one over as an external would put a value in a program's
 // hands that it could not print, compare or store -- and would make every handler in every
 // consumer read host properties instead of slate fields.
 //
@@ -379,6 +379,13 @@ export markup(node)
 // `stop` and `prevent` are slate functions closing over the host event, which is the one place a
 // foreign value is deliberately kept alive past the call that made it -- for as long as the handler
 // runs and no longer.
+//
+// **`target` is the node the event originated on** -- the same kind of node value every other name
+// in this package hands out, not an external kept apart as a special case. A handler installed on a
+// parent for several children (a menu, a tab list) reads `target` to learn which child was hit.
+// `closest(selector)` answers the nearest ancestor-or-self of `target` matching `selector`, or
+// `null` when none does -- `Element.closest`, read off `target` after climbing to its parent
+// element where `target` is a text node, which has no `closest` of its own.
 //
 // ## Taking a listener off again
 //
@@ -408,7 +415,14 @@ export markup(node)
 // a node given a listener is held until `off` takes it back, and `off` empties every level it
 // leaves empty.
 
-// What a handler is given: the eight fields, built here from the host's event.
+// The nearest ancestor-or-self of `node` matching `selector`, or `null` -- a text node has no
+// `closest` of its own, so the walk starts one level up, at its parent element.
+closestOf(node, selector)
+    val start = if kindOf(node) == "text" then node.parentElement else node
+
+    if start == null then null else start.closest(selector)
+
+// What a handler is given: the ten fields, built here from the host's event.
 //
 // **The target is read for `value` and `checked`** -- what the field holds now, which is the pair a
 // form turns on -- and every field a host event does not carry comes back `null` on its own, an
@@ -428,7 +442,9 @@ eventRecord(e)
             alt: e.altKey == true },
         button: e.button,
         stop: () -> e.stopPropagation(),
-        prevent: () -> e.preventDefault() }
+        prevent: () -> e.preventDefault(),
+        target: target,
+        closest: (selector) -> closestOf(target, selector) }
 
 // Every listener this module installed, as node to event name to closure to the `AbortController`
 // that takes it off again.
