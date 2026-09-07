@@ -59,13 +59,8 @@ needsNode()
     if host() != "interpreter"
         skip("a node cannot be stood in for on a host that answers property reads")
 
-// What a call said when it refused, or a sentence saying it did not refuse at all.
-//
-// **A refusal is read through `catch` rather than asserted with `assertFaults`**, because what a
-// refusal SAYS is the whole of what this file measures: a caught fault hands its message over as an
-// ordinary value, and every test below asks whether that sentence names the host. It is also the
-// only spelling the interpreter runs -- `assertFaults` over a callback that faults below its own
-// frame panics the runner there, while the same call caught by `catch` refuses correctly.
+// What a call said when it faulted, read through `catch` for the one test below that asks more of
+// the sentence than "does it contain this part".
 saidBy(f) = ran(f) catch e -> e.message
 
 ran(f)
@@ -73,14 +68,9 @@ ran(f)
 
     "nothing was refused"
 
-// One refusal, and the part of its sentence that has to be in it. Answers the whole sentence, so a
-// test may go on to ask what else it does and does not say.
+// One refusal: the call has to fault, and the sentence has to contain the part given.
 refused(f, expected)
-    val said = saidBy(f)
-
-    assert(contains(said, expected), said)
-
-    said
+    assertFaults(f, expected)
 
 @test
 createElement_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
@@ -122,11 +112,7 @@ setChildren_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
 setText_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
     needsNode()
 
-    // **The sentence is not asserted here and is everywhere else.** Writing a property through the
-    // dotted form is the one host operation the interpreter words as though the value were an
-    // ordinary object, so what this measures is that the call is refused at all.
-    assert(contains(saidBy(() -> setText(node, "said")), "external"),
-        saidBy(() -> setText(node, "said")))
+    refused(() -> setText(node, "said"), refusal)
 
 @test
 insertBefore_FAULTS_WHERE_THERE_IS_NO_JAVASCRIPT_HOST()
@@ -325,9 +311,11 @@ THE_EXPORT_LIST_IS_THE_ONE_slate_dom_HAS_NAME_FOR_NAME()
 
 @test
 A_REFUSAL_NAMES_THE_HOST_AND_NOT_THE_HANDLE_TABLE_THAT_IS_NO_LONGER_THERE()
-    val said = refused(() -> byId("app"), refusal)
+    refused(() -> byId("app"), refusal)
 
     // The built-in module hands out an index into a table and says so when one is stale. There is no
     // table here, so no refusal may send a reader looking for one.
+    val said = saidBy(() -> byId("app"))
+
     assert(!contains(said, "released"), said)
     assert(!contains(said, "handle"), said)

@@ -162,13 +162,15 @@ would pass.
 
 ## Requirements
 
-slate **0.0.39** or newer, and nothing else. Two things make the floor. `external` itself, which is
+slate **0.0.40** or newer, and nothing else. Three things make the floor. `external` itself, which is
 what every function here is built on and which arrived in 0.0.38 — an older compiler fails at the
-first declaration. And an external hashing by the host value it holds, which arrived in 0.0.39: the
+first declaration. An external hashing by the host value it holds, which arrived in 0.0.39: the
 listener table is keyed by the node, so on 0.0.38 `off` would find nothing for a node read a second
-time. A manifest has no key for a compiler floor — the reader takes `name`, `version`, `main`,
-`modules`, `dependencies` and `devDependencies` and names anything else — so this paragraph is where
-it is written down.
+time. And `assertFaults` no longer panicking the interpreter over a callback that faults below its
+own frame, which arrived in 0.0.40 and is what this package's own test suite relies on. A manifest
+has no key for a compiler floor — the reader takes `name`, `version`, `main`, `modules`,
+`dependencies` and `devDependencies` and names anything else — so this paragraph is where it is
+written down.
 
 ## Licence
 
